@@ -3,7 +3,9 @@ from app.graph.state import ResearchState
 
 
 def after_plan(state: ResearchState) -> str:
-    return "enrich_financials"
+    if state.get("company_type") == "public":
+        return "enrich_financials"
+    return "research"
 
 
 def after_quality_gate(state: ResearchState) -> str:
