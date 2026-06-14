@@ -114,6 +114,7 @@ export default function SessionDetailPage() {
               <WorkflowProgress
                 sessionId={session.session_id}
                 initialStatus={session.status}
+                companyType={session.report?.meta.company_type}
                 onComplete={handleWorkflowComplete}
               />
             )}
