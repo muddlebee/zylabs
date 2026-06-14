@@ -1,35 +1,99 @@
+import json
 import structlog
 from app.graph.state import ResearchState, NodeError
+from app.tools import scrape as scrape_tool
+from app.llm import get_llm
 
 log = structlog.get_logger()
+
+_EXTRACT_PROMPT = """Extract financial and firmographic data from the text below about {company}.
+Return ONLY valid JSON with these fields (use null for unknown):
+{{
+  "revenue": "annual revenue as string e.g. '$2.5B' or '$50M'",
+  "funding_total": "total funding raised e.g. '$500M Series D'",
+  "valuation": "valuation e.g. '$6.5B'",
+  "employees": "headcount as integer or null",
+  "founded_year": "year as integer or null",
+  "headquarters": "city, country",
+  "investors": ["list", "of", "notable", "investors"],
+  "market_cap": "market cap for public companies or null",
+  "description": "one sentence summary of what the company does"
+}}
+
+Text:
+{text}"""
 
 
 async def financials_node(state: ResearchState) -> dict:
     session_id = state["session_id"]
     company_name = state["company_name"]
-    log.info("financials_node.start", session_id=session_id, company=company_name)
-
+    company_type = state.get("company_type", "unknown")
     errors = list(state.get("errors", []))
+
+    log.info("financials_node.start", session_id=session_id, company=company_name, type=company_type)
+
+    # Public companies: try yfinance first with ticker resolution
+    if company_type == "public":
+        try:
+            import yfinance as yf
+            # Resolve ticker via search before fetching info
+            search_result = yf.Search(company_name, max_results=3)
+            quotes = getattr(search_result, "quotes", [])
+            ticker_symbol = quotes[0].get("symbol") if quotes else company_name
+            ticker = yf.Ticker(ticker_symbol)
+            info = ticker.info
+            if info and len(info) >= 5:
+                financials = {
+                    "market_cap": info.get("marketCap"),
+                    "revenue": _fmt_large(info.get("totalRevenue")),
+                    "employees": info.get("fullTimeEmployees"),
+                    "sector": info.get("sector"),
+                    "headquarters": info.get("city"),
+                    "description": info.get("longBusinessSummary"),
+                    "pe_ratio": info.get("trailingPE"),
+                    "symbol": info.get("symbol") or ticker_symbol,
+                    "source": "yfinance",
+                }
+                log.info("financials_node.yfinance_ok", session_id=session_id, symbol=ticker_symbol)
+                return {"financials": financials, "status": "Financials enriched"}
+        except Exception as exc:
+            log.warning("financials_node.yfinance_failed", session_id=session_id, error=str(exc))
+
+    # All company types: Firecrawl search for financial signals
     try:
-        import yfinance as yf
-        ticker = yf.Ticker(company_name)
-        info = ticker.info
-        # yfinance returns an almost-empty dict for unknown tickers
-        if not info or len(info) < 5:
-            raise ValueError(f"No yfinance data found for '{company_name}'")
-        financials = {
-            "market_cap": info.get("marketCap"),
-            "revenue": info.get("totalRevenue"),
-            "employees": info.get("fullTimeEmployees"),
-            "sector": info.get("sector"),
-            "industry": info.get("industryDisp") or info.get("industry"),
-            "description": info.get("longBusinessSummary"),
-            "pe_ratio": info.get("trailingPE"),
-            "symbol": info.get("symbol"),
-        }
-        log.info("financials_node.done", session_id=session_id, symbol=financials.get("symbol"))
+        query = "revenue funding valuation employees headcount investors founded"
+        sources = scrape_tool.search(query, company_name, state.get("company_url", ""))
+        combined_text = "\n\n".join(
+            f"[{s['title']}]\n{s['snippet']}" for s in sources if s.get("snippet")
+        )
+        if not combined_text.strip():
+            raise ValueError("No financial content found via search")
+
+        llm = get_llm()
+        prompt = _EXTRACT_PROMPT.format(company=company_name, text=combined_text[:6000])
+        response = await llm.ainvoke([{"role": "user", "content": prompt}])
+        raw = response.content.strip()
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        financials = json.loads(raw)
+        financials["source"] = "web"
+        log.info("financials_node.web_ok", session_id=session_id)
         return {"financials": financials, "status": "Financials enriched"}
+
     except Exception as exc:
         log.warning("financials_node.skipped", session_id=session_id, error=str(exc))
         errors.append(NodeError(node="enrich_financials", message=str(exc), recoverable=True))
         return {"financials": {}, "errors": errors, "status": "Financials unavailable"}
+
+
+def _fmt_large(n):
+    if n is None:
+        return None
+    if n >= 1_000_000_000:
+        return f"${n / 1_000_000_000:.1f}B"
+    if n >= 1_000_000:
+        return f"${n / 1_000_000:.0f}M"
+    return f"${n:,}"
