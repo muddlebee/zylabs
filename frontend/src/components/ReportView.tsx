@@ -51,6 +51,11 @@ export default function ReportView({ report }: Props) {
         </div>
       </div>
 
+      {/* Financial Snapshot */}
+      {report.financials && Object.keys(report.financials).length > 0 && (
+        <FinancialSnapshot financials={report.financials} />
+      )}
+
       {/* Sections */}
       {sections.map(section => (
         <ReportSection
@@ -71,6 +76,54 @@ export default function ReportView({ report }: Props) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+const FINANCIAL_LABELS: Record<string, string> = {
+  market_cap:     'Market Cap',
+  revenue:        'Revenue',
+  funding_total:  'Total Funding',
+  valuation:      'Valuation',
+  employees:      'Employees',
+  founded_year:   'Founded',
+  headquarters:   'Headquarters',
+  sector:         'Sector',
+  pe_ratio:       'P/E Ratio',
+  symbol:         'Ticker',
+  description:    'Summary',
+  source:         '',
+}
+
+function FinancialSnapshot({ financials }: { financials: Record<string, string | number | string[] | null> }) {
+  const entries = Object.entries(financials).filter(
+    ([k, v]) => k !== 'source' && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)
+  )
+  if (!entries.length) return null
+
+  return (
+    <div className="border border-c-border rounded-xl p-5 bg-surface">
+      <div className="flex items-baseline gap-3 mb-4">
+        <span className="text-accent font-serif text-lg w-5 text-center shrink-0 select-none">$</span>
+        <h2 className="font-serif text-xl text-ink">Financial Snapshot</h2>
+        {financials.source && (
+          <span className="ml-auto text-xs text-ink-3 capitalize">
+            via {financials.source === 'yfinance' ? 'Yahoo Finance' : 'web research'}
+          </span>
+        )}
+      </div>
+      <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 pl-8">
+        {entries.map(([key, val]) => {
+          const label = FINANCIAL_LABELS[key] ?? key.replace(/_/g, ' ')
+          const display = Array.isArray(val) ? val.join(', ') : String(val)
+          return (
+            <div key={key} className="min-w-0">
+              <dt className="text-xs text-ink-3 uppercase tracking-wide">{label}</dt>
+              <dd className="text-sm text-ink font-medium mt-0.5 truncate" title={display}>{display}</dd>
+            </div>
+          )
+        })}
+      </dl>
     </div>
   )
 }

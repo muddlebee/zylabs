@@ -29,6 +29,7 @@ export interface Report {
   generated_at: string
   sections: Record<string, SectionFinding>
   sources: Source[]
+  financials: Record<string, string | number | string[] | null>
   meta: {
     quality_score: number
     revisions: number

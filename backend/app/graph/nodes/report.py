@@ -15,6 +15,7 @@ async def report_node(state: ResearchState) -> dict:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "sections": state.get("findings", {}),
         "sources": state.get("sources", []),
+        "financials": state.get("financials") or {},
         "meta": {
             "quality_score": state.get("quality_score", 0.0),
             "revisions": state.get("revisions", 0),
