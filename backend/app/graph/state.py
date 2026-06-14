@@ -58,7 +58,8 @@ class ResearchState(TypedDict):
 
     report: Optional[dict]
     errors: Annotated[list[NodeError], operator.add]
-    status: str
+    # last-writer-wins for status (parallel workers each emit one)
+    status: Annotated[str, lambda _a, b: b]
 
     # Populated per-worker during parallel fan-out; not used outside research phase
     current_task: Optional[ResearchTask]

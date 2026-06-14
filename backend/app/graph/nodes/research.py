@@ -23,5 +23,13 @@ async def research_dispatcher(state: ResearchState) -> Command:
         log.info("research_dispatcher.tasks", session_id=session_id, count=len(tasks))
 
     return Command(
-        goto=[Send("research_worker", {"current_task": task}) for task in tasks]
+        goto=[
+            Send("research_worker", {
+                "current_task": task,
+                "session_id": state["session_id"],
+                "company_name": state["company_name"],
+                "company_url": state.get("company_url", ""),
+            })
+            for task in tasks
+        ]
     )
