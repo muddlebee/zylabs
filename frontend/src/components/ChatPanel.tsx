@@ -24,8 +24,8 @@ export default function ChatPanel({ sessionId }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  async function send() {
-    const msg = input.trim()
+  async function send(msgOverride?: string) {
+    const msg = (msgOverride ?? input).trim()
     if (!msg || loading) return
     setInput('')
     setError('')
@@ -79,7 +79,7 @@ export default function ChatPanel({ sessionId }: Props) {
             {SUGGESTIONS.map(s => (
               <button
                 key={s}
-                onClick={() => { setInput(s); }}
+                onClick={() => send(s)}
                 className="text-xs px-3 py-1.5 border border-c-border rounded-full text-ink-3 hover:border-accent hover:text-accent transition-colors"
               >
                 {s}

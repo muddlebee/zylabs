@@ -35,13 +35,20 @@ test.describe('Follow-up chat', () => {
     await expect(input).toBeVisible()
   })
 
-  test('clicking a suggestion chip populates the input', async ({ page }) => {
+  test('clicking a suggestion chip auto-sends the message', async ({ page }) => {
+    test.setTimeout(60_000)
+
     const chip = page.locator('button').filter({ hasText: /key risks|open the conversation|decision makers/i }).first()
     if (await chip.isVisible()) {
+      const chipText = (await chip.textContent())?.trim() ?? ''
       await chip.click()
-      const input = page.getByPlaceholder(/ask a follow-up/i)
-      const value = await input.inputValue()
-      expect(value.length).toBeGreaterThan(5)
+
+      // Message is sent immediately — user bubble appears, input stays empty
+      await expect(page.getByText(chipText)).toBeVisible({ timeout: 5_000 })
+      await expect(page.getByPlaceholder(/ask a follow-up/i)).toHaveValue('')
+
+      // Assistant response eventually appears
+      await expect(page.locator('.chat-assistant').first()).toBeVisible({ timeout: 45_000 })
     }
   })
 
