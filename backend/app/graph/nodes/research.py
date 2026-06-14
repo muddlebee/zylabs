@@ -1,3 +1,5 @@
+import asyncio
+
 import structlog
 from app.graph.state import ResearchState, NodeError
 from app.tools import scrape as scrape_tool
@@ -22,11 +24,16 @@ async def research_node(state: ResearchState) -> dict:
         questions_to_run = [t["question"] for t in research_plan if not t["done"]]
 
     company_url = state["company_url"]
+    company_name = state["company_name"]
+    loop = asyncio.get_event_loop()
 
-    # Scrape company URL once
-    if company_url and company_url not in scraped:
+    # Scrape the company URL once — the only page we keep in full (synthesize reads
+    # it at [:3000]). Runs concurrently with the searches below.
+    async def _scrape_company() -> None:
+        if not company_url or company_url in scraped:
+            return
         try:
-            text = scrape_tool.scrape(company_url)
+            text = await loop.run_in_executor(None, scrape_tool.scrape, company_url)
             scraped[company_url] = text
             log.info("research_node.scraped", session_id=session_id, url=company_url, chars=len(text))
         except Exception as exc:
@@ -34,19 +41,34 @@ async def research_node(state: ResearchState) -> dict:
             errors.append(NodeError(node="research", message=f"Scrape failed: {exc}", recoverable=True))
             scraped[company_url] = ""
 
-    # Tavily search per question
-    existing_urls = {s["url"] for s in sources}
-    for question in questions_to_run:
+    # Snippet-only search per question, fanned out concurrently. Downstream only ever
+    # reads Source.snippet, so full-page scrapes here were paid-for-and-discarded
+    # Firecrawl credits — we now take the search description and skip the scrape.
+    async def _search(question: str) -> list:
         try:
-            results = scrape_tool.search(question, state["company_name"], company_url)
-            for r in results:
-                if r["url"] not in existing_urls:
-                    sources.append(r)
-                    existing_urls.add(r["url"])
+            return await loop.run_in_executor(
+                None,
+                lambda: scrape_tool.search(
+                    question, company_name, company_url, scrape_results=False,
+                ),
+            )
         except Exception as exc:
-            log.warning("research_node.tavily_failed", session_id=session_id,
+            log.warning("research_node.search_failed", session_id=session_id,
                         question=question, error=str(exc))
             errors.append(NodeError(node="research", message=f"Search failed for '{question}': {exc}", recoverable=True))
+            return []
+
+    results = await asyncio.gather(
+        _scrape_company(),
+        *[_search(q) for q in questions_to_run],
+    )
+
+    existing_urls = {s["url"] for s in sources}
+    for result_list in results[1:]:  # results[0] is the company-URL scrape (None)
+        for r in result_list:
+            if r["url"] not in existing_urls:
+                sources.append(r)
+                existing_urls.add(r["url"])
 
     # Mark tasks done
     for task in research_plan:

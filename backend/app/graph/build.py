@@ -31,7 +31,8 @@ def build_graph(checkpointer):
         after_plan,
         {"enrich_financials": "enrich_financials", "research": "research"},
     )
-    builder.add_edge("enrich_financials", "research")
+    # enrich_financials and research fan out from plan and converge on synthesize.
+    builder.add_edge("enrich_financials", "synthesize")
     builder.add_edge("research", "synthesize")
     builder.add_edge("synthesize", "quality_gate")
     builder.add_conditional_edges(

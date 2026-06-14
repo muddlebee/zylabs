@@ -76,12 +76,15 @@ async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
 
     try:
         async for chunk in graph_module.graph.astream(initial_state, config=config, stream_mode="updates"):
-            node_name = next(iter(chunk))
-            node_state = chunk[node_name]
-            status = node_state.get("status", f"{node_name} running")
-            log.info("graph.node_update", session_id=session_id, node=node_name, status=status)
-            if queue:
-                await queue.put({"node": node_name, "status": status})
+            # Under the plan→{financials, research} fan-out a single chunk can carry
+            # multiple node updates, so emit one SSE event per node rather than the first.
+            for node_name, node_state in chunk.items():
+                if not isinstance(node_state, dict):
+                    continue
+                status = node_state.get("status", f"{node_name} running")
+                log.info("graph.node_update", session_id=session_id, node=node_name, status=status)
+                if queue:
+                    await queue.put({"node": node_name, "status": status})
 
         # Retrieve final state and persist report
         final = await graph_module.graph.aget_state(config)

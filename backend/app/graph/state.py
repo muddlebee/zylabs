@@ -1,4 +1,21 @@
-from typing import TypedDict, Literal, Optional
+from typing import TypedDict, Literal, Optional, Annotated
+
+
+def _merge_errors(left: list, right: list) -> list:
+    """Concurrency-safe error merge for parallel branches; dedupes on (node, message)."""
+    merged = list(left or [])
+    seen = {(e["node"], e["message"]) for e in merged}
+    for e in right or []:
+        key = (e["node"], e["message"])
+        if key not in seen:
+            seen.add(key)
+            merged.append(e)
+    return merged
+
+
+def _take_last(left, right):
+    """Last-writer-wins for the human-facing status string under parallel writes."""
+    return right if right is not None else left
 
 
 class Source(TypedDict):
@@ -51,5 +68,5 @@ class ResearchState(TypedDict):
     revisions: int
 
     report: Optional[dict]
-    errors: list[NodeError]
-    status: str
+    errors: Annotated[list[NodeError], _merge_errors]
+    status: Annotated[str, _take_last]
