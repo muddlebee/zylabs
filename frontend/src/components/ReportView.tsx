@@ -1,14 +1,15 @@
+import type { ReactNode } from 'react'
 import type { Report, Source } from '../types'
 
-const SECTION_META: Record<string, { label: string; icon: string; order: number }> = {
-  overview:             { label: 'Company Overview',          icon: '◈', order: 1 },
-  products_services:    { label: 'Products & Services',       icon: '◇', order: 2 },
-  target_customers:     { label: 'Target Customers',          icon: '◉', order: 3 },
-  business_signals:     { label: 'Business Signals',          icon: '△', order: 4 },
-  risks_challenges:     { label: 'Risks & Challenges',        icon: '▽', order: 5 },
-  discovery_questions:  { label: 'Discovery Questions',       icon: '?', order: 6 },
-  outreach_strategy:    { label: 'Outreach Strategy',         icon: '→', order: 7 },
-  unknowns:             { label: 'Unknowns',                  icon: '○', order: 8 },
+const SECTION_META: Record<string, { label: string; order: number }> = {
+  overview:             { label: 'Company Overview',    order: 1 },
+  products_services:    { label: 'Products & Services', order: 2 },
+  target_customers:     { label: 'Target Customers',    order: 3 },
+  business_signals:     { label: 'Business Signals',    order: 4 },
+  risks_challenges:     { label: 'Risks & Challenges',  order: 5 },
+  discovery_questions:  { label: 'Discovery Questions', order: 6 },
+  outreach_strategy:    { label: 'Outreach Strategy',   order: 7 },
+  unknowns:             { label: 'Unknowns',            order: 8 },
 }
 
 const TIER_CONFIG = {
@@ -21,7 +22,7 @@ interface Props { report: Report }
 
 export default function ReportView({ report }: Props) {
   const sections = Object.entries(report.sections)
-    .map(([key, val]) => ({ key, meta: SECTION_META[key] ?? { label: key, icon: '·', order: 99 }, ...val }))
+    .map(([key, val]) => ({ key, meta: SECTION_META[key] ?? { label: key, order: 99 }, ...val }))
     .sort((a, b) => a.meta.order - b.meta.order)
 
   const sourceMap = Object.fromEntries(report.sources.map(s => [s.id, s]))
@@ -67,8 +68,8 @@ export default function ReportView({ report }: Props) {
 
       {/* Sources */}
       {report.sources.length > 0 && (
-        <div className="pt-8 border-t border-c-border">
-          <h2 className="font-serif text-xl text-ink mb-4">Sources</h2>
+        <div className="pt-4">
+          <SectionHeader title="Sources" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {report.sources.map(source => (
               <SourceCard key={source.id} source={source} />
@@ -103,16 +104,15 @@ function FinancialSnapshot({ financials }: { financials: Record<string, string |
 
   return (
     <div className="border border-c-border rounded-xl p-5 bg-surface">
-      <div className="flex items-baseline gap-3 mb-4">
-        <span className="text-accent font-serif text-lg w-5 text-center shrink-0 select-none">$</span>
-        <h2 className="font-serif text-xl text-ink">Financial Snapshot</h2>
-        {financials.source && (
-          <span className="ml-auto text-xs text-ink-3 capitalize">
+      <SectionHeader
+        title="Financial Snapshot"
+        trailing={financials.source ? (
+          <span className="text-xs text-ink-3">
             via {financials.source === 'yfinance' ? 'Yahoo Finance' : 'web research'}
           </span>
-        )}
-      </div>
-      <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 pl-8">
+        ) : undefined}
+      />
+      <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3">
         {entries.map(([key, val]) => {
           const label = FINANCIAL_LABELS[key] ?? key.replace(/_/g, ' ')
           const display = Array.isArray(val) ? val.join(', ') : String(val)
@@ -128,11 +128,41 @@ function FinancialSnapshot({ financials }: { financials: Record<string, string |
   )
 }
 
+function SectionHeader({
+  title,
+  index,
+  trailing,
+}: {
+  title: string
+  index?: number
+  trailing?: ReactNode
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 mb-4 pb-3 border-b border-c-border">
+      <div className="flex items-baseline gap-2.5 min-w-0">
+        {index != null && (
+          <span className="text-[11px] font-semibold text-accent tabular-nums tracking-widest shrink-0 select-none">
+            {String(index).padStart(2, '0')}
+          </span>
+        )}
+        <h2 className="font-sans text-[1.0625rem] font-semibold text-ink leading-snug tracking-tight">
+          {title}
+        </h2>
+      </div>
+      {trailing && (
+        <div className="flex items-center gap-2 shrink-0">
+          {trailing}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ReportSection({
   section,
   sourceMap,
 }: {
-  section: { key: string; meta: { label: string; icon: string }; content: string; source_ids: string[]; confidence: number }
+  section: { key: string; meta: { label: string; order: number }; content: string; source_ids: string[]; confidence: number }
   sourceMap: Record<string, Source>
 }) {
   const citedSources = (section.source_ids ?? [])
@@ -140,42 +170,38 @@ function ReportSection({
     .filter(Boolean)
 
   return (
-    <div className="group">
-      <div className="flex items-baseline gap-3 mb-3">
-        <span className="text-accent font-serif text-lg w-5 text-center shrink-0 select-none">
-          {section.meta.icon}
-        </span>
-        <h2 className="font-serif text-xl text-ink">{section.meta.label}</h2>
-        <ConfidencePip confidence={section.confidence} />
+    <section>
+      <SectionHeader
+        title={section.meta.label}
+        index={section.meta.order}
+        trailing={<ConfidencePip confidence={section.confidence} />}
+      />
+
+      <div className="report-prose">
+        {section.content.split('\n').filter(Boolean).map((para, i) => (
+          <p key={i}>{para}</p>
+        ))}
       </div>
 
-      <div className="pl-8">
-        <div className="report-prose">
-          {section.content.split('\n').filter(Boolean).map((para, i) => (
-            <p key={i}>{para}</p>
+      {citedSources.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          {citedSources.map(s => (
+            <a
+              key={s.id}
+              href={s.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={s.title}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs border rounded-full no-underline
+                hover:opacity-80 transition-opacity ${TIER_CONFIG[s.tier]?.cls ?? TIER_CONFIG[3].cls}`}
+            >
+              <span>{TIER_CONFIG[s.tier]?.label ?? 'Web'}</span>
+              <span className="truncate max-w-[120px]">{s.title || new URL(s.url).hostname}</span>
+            </a>
           ))}
         </div>
-
-        {citedSources.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {citedSources.map(s => (
-              <a
-                key={s.id}
-                href={s.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={s.title}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs border rounded-full no-underline
-                  hover:opacity-80 transition-opacity ${TIER_CONFIG[s.tier]?.cls ?? TIER_CONFIG[3].cls}`}
-              >
-                <span>{TIER_CONFIG[s.tier]?.label ?? 'Web'}</span>
-                <span className="truncate max-w-[120px]">{s.title || new URL(s.url).hostname}</span>
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+      )}
+    </section>
   )
 }
 
@@ -218,17 +244,25 @@ function QualityBadge({ score }: { score: number }) {
 
 function ConfidencePip({ confidence }: { confidence: number }) {
   if (!confidence) return null
+  const pct = Math.round(confidence * 100)
+  const level = confidence >= 0.8 ? 'High' : confidence >= 0.6 ? 'Med' : 'Low'
   const color = confidence >= 0.8 ? 'bg-c-green'
     : confidence >= 0.6 ? 'bg-accent'
     : 'bg-c-red'
   return (
-    <div className="flex items-center gap-1 ml-auto" title={`${Math.round(confidence * 100)}% confidence`}>
-      {[0.33, 0.66, 1].map((threshold, i) => (
-        <div
-          key={i}
-          className={`w-1.5 h-1.5 rounded-full ${confidence >= threshold ? color : 'bg-c-border'}`}
-        />
-      ))}
-    </div>
+    <span
+      className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-2"
+      title={`${pct}% confidence`}
+    >
+      <span className="hidden sm:inline">{level}</span>
+      <span className="flex items-center gap-0.5" aria-hidden="true">
+        {[0.33, 0.66, 1].map((threshold, i) => (
+          <span
+            key={i}
+            className={`w-1.5 h-1.5 rounded-full ${confidence >= threshold ? color : 'bg-c-border'}`}
+          />
+        ))}
+      </span>
+    </span>
   )
 }
