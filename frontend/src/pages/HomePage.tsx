@@ -22,12 +22,8 @@ export default function HomePage() {
     <div className="max-w-4xl mx-auto px-6 py-12">
       {/* Hero */}
       <div className="mb-12">
-        <p className="text-xs font-semibold tracking-widest text-accent uppercase mb-3">
-          Sales Intelligence
-        </p>
         <h1 className="font-serif text-4xl md:text-5xl text-ink leading-tight mb-4">
-          Know your prospect<br />
-          <span className="italic">before you walk in.</span>
+          Sales Intelligence
         </h1>
         <p className="text-ink-3 text-base max-w-lg">
           Enter a company and your meeting objective. Our AI pipeline researches,
