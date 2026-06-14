@@ -1,4 +1,5 @@
-from typing import TypedDict, Literal, Optional
+import operator
+from typing import Annotated, TypedDict, Literal, Optional
 
 
 class Source(TypedDict):
@@ -30,6 +31,10 @@ class NodeError(TypedDict):
     recoverable: bool
 
 
+def _merge_scraped(a: dict, b: dict) -> dict:
+    return {**a, **b}
+
+
 class ResearchState(TypedDict):
     session_id: str
     company_name: str
@@ -39,8 +44,9 @@ class ResearchState(TypedDict):
     research_plan: list[ResearchTask]
     company_type: Literal["public", "private", "startup", "unknown"]
 
-    sources: list[Source]
-    scraped: dict[str, str]
+    # Annotated with reducers so parallel research_worker outputs auto-merge
+    sources: Annotated[list[Source], operator.add]
+    scraped: Annotated[dict[str, str], _merge_scraped]
     financials: Optional[dict]
 
     findings: dict[str, SectionFinding]
@@ -51,5 +57,8 @@ class ResearchState(TypedDict):
     revisions: int
 
     report: Optional[dict]
-    errors: list[NodeError]
+    errors: Annotated[list[NodeError], operator.add]
     status: str
+
+    # Populated per-worker during parallel fan-out; not used outside research phase
+    current_task: Optional[ResearchTask]

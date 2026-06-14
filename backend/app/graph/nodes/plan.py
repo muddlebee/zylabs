@@ -11,7 +11,11 @@ SYSTEM_PROMPT = """You are a research planning assistant. Given a company and a 
 decompose the research into 5-8 specific sub-questions that cover these sections:
 overview, products_services, target_customers, business_signals, risks_challenges.
 
-Also classify the company type as: public, private, startup, or unknown.
+Also classify the company type using these rules:
+- "public": listed on a stock exchange. If the name is 2-5 uppercase letters (e.g. AAPL, DRAM, SPY, QQQ, NVDA), it is a stock or ETF ticker — classify as public.
+- "private": private company with known investors or funding rounds.
+- "startup": early-stage company, typically seed or Series A, founded within the last 5 years.
+- "unknown": insufficient information to classify.
 
 Respond with JSON only, no markdown:
 {

@@ -5,12 +5,15 @@ import { api } from '../api'
 const NODES = [
   { key: 'plan',              label: 'Planning',          desc: 'Decomposing research objective' },
   { key: 'enrich_financials', label: 'Financial Data',    desc: 'Fetching public market data' },
-  { key: 'research',          label: 'Research',          desc: 'Searching & scraping sources' },
+  { key: 'research',          label: 'Research',          desc: 'Parallel agents searching sources' },
   { key: 'synthesize',        label: 'Synthesis',         desc: 'Analysing findings' },
   { key: 'quality_gate',      label: 'Quality Check',     desc: 'Scoring coverage & confidence' },
   { key: 'strategize',        label: 'Strategy',          desc: 'Building sales angles' },
   { key: 'generate_report',   label: 'Report',            desc: 'Assembling final briefing' },
 ]
+
+// SSE node names that map to the 'research' display step
+const RESEARCH_NODES = new Set(['research', 'research_dispatcher', 'research_worker'])
 
 type NodeState = 'pending' | 'active' | 'done' | 'skipped'
 
@@ -21,10 +24,11 @@ interface Props {
 }
 
 export default function WorkflowProgress({ sessionId, initialStatus, onComplete }: Props) {
-  const [events, setEvents] = useState<StreamEvent[]>([])
-  const [done, setDone]     = useState(initialStatus === 'completed' || initialStatus === 'failed')
-  const [failed, setFailed] = useState(initialStatus === 'failed')
-  const [revisions, setRevisions] = useState(0)
+  const [events, setEvents]         = useState<StreamEvent[]>([])
+  const [done, setDone]             = useState(initialStatus === 'completed' || initialStatus === 'failed')
+  const [failed, setFailed]         = useState(initialStatus === 'failed')
+  const [revisions, setRevisions]   = useState(0)
+  const [workersDone, setWorkersDone] = useState(0)
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
@@ -44,12 +48,16 @@ export default function WorkflowProgress({ sessionId, initialStatus, onComplete 
           return
         }
         const event: StreamEvent = data
+        if (event.node === 'research_worker') {
+          setWorkersDone(n => n + 1)
+        }
         setEvents(prev => {
-          // detect re-research loop
-          const lastResearch = prev.findLastIndex(e => e.node === 'research')
+          // detect re-research loop (dispatcher firing after quality gate)
+          const lastResearch = prev.findLastIndex(e => RESEARCH_NODES.has(e.node))
           const lastQuality  = prev.findLastIndex(e => e.node === 'quality_gate')
-          if (event.node === 'research' && lastQuality > lastResearch) {
+          if (event.node === 'research_dispatcher' && lastQuality > lastResearch) {
             setRevisions(r => r + 1)
+            setWorkersDone(0)
           }
           return [...prev, event]
         })
@@ -68,20 +76,33 @@ export default function WorkflowProgress({ sessionId, initialStatus, onComplete 
     return () => { es.close() }
   }, [sessionId, done, onComplete])
 
+  function resolveStep(eventNode: string): string {
+    return RESEARCH_NODES.has(eventNode) ? 'research' : eventNode
+  }
+
   function getNodeState(key: string): NodeState {
-    const completed = events.filter(e => e.node === key)
-    if (completed.length > 0) return 'done'
+    const isResearch = key === 'research'
+    const completed = isResearch
+      ? events.filter(e => RESEARCH_NODES.has(e.node))
+      : events.filter(e => e.node === key)
+
+    // Research step: done only when synthesize has fired (workers can still be running)
+    if (isResearch) {
+      if (events.some(e => e.node === 'synthesize')) return 'done'
+      if (completed.length > 0) return 'active'
+    } else {
+      if (completed.length > 0) return 'done'
+    }
+
     if (done) return 'pending'
 
     const lastEvent = events[events.length - 1]
-    if (!lastEvent) {
-      return key === 'plan' ? 'active' : 'pending'
-    }
+    if (!lastEvent) return key === 'plan' ? 'active' : 'pending'
 
-    const lastIdx = NODES.findIndex(n => n.key === lastEvent.node)
-    const thisIdx = NODES.findIndex(n => n.key === key)
+    const lastStep = resolveStep(lastEvent.node)
+    const lastIdx  = NODES.findIndex(n => n.key === lastStep)
+    const thisIdx  = NODES.findIndex(n => n.key === key)
 
-    // Check if this node was skipped (e.g. enrich_financials)
     if (thisIdx > 0 && thisIdx < lastIdx) return 'skipped'
     if (thisIdx === lastIdx + 1) return 'active'
     return 'pending'
@@ -130,6 +151,11 @@ export default function WorkflowProgress({ sessionId, initialStatus, onComplete 
                     : 'text-ink-3'
                   }`}>
                     {node.label}
+                    {node.key === 'research' && workersDone > 0 && state !== 'done' && (
+                      <span className="ml-1.5 text-xs font-normal text-ink-3">
+                        ({workersDone} agent{workersDone !== 1 ? 's' : ''} done)
+                      </span>
+                    )}
                   </span>
                   {state === 'done' && (
                     <svg className="w-3.5 h-3.5 text-c-green shrink-0" viewBox="0 0 20 20" fill="currentColor">

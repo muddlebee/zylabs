@@ -123,6 +123,34 @@ Tier logic:
 
 ---
 
+## 9. Parallel research fan-out via LangGraph `Send` + `Command`
+
+**Decision:** `research_dispatcher` returns `Command(goto=[Send("research_worker", task) for task in tasks])`. Each sub-question gets its own `research_worker` instance running in parallel. State fields that accumulate across workers (`sources`, `scraped`, `errors`) use `Annotated` reducers (`operator.add` for lists, dict merge for scraped).
+
+**Why:** Sequential search was the single largest latency contributor — a 6-question plan blocked 6 Firecrawl calls in series. With parallel fan-out, all workers fire simultaneously and converge on `synthesize` when the last one finishes. Expected wall-clock reduction: 5–6× on a typical plan.
+
+**Trade-off:** Parallel Firecrawl calls consume credits faster. Mitigated by deduplication in the reducer (duplicate URLs are overwritten, not appended). Checkpoint state is larger since workers write independently.
+
+---
+
+## 10. ReAct tool-calling agent for each research worker
+
+**Decision:** Each `research_worker` is a `create_react_agent(llm, [web_search, scrape_page])` instance. The agent decides which tool to call based on the question, how many times to call it, and when it has enough evidence. Tools are closures that append discovered sources to a local list, which is returned as the node's output.
+
+**Why:** A fixed "always call Firecrawl search once" approach cannot adapt to question type. Financial questions benefit from a direct yfinance lookup; questions about a specific product page benefit from `scrape_page` on a known URL. The ReAct loop (`think → act → observe → think`) lets the LLM make these decisions, producing higher-quality evidence for the same credit budget.
+
+**Trade-off:** Adds LLM tokens per worker (tool-calling overhead). Mitigated by `MAX_TOOL_STEPS = 3` per worker. Using `create_react_agent` from `langgraph.prebuilt` keeps the implementation concise — the agent graph is managed internally.
+
+---
+
+## 11. Ticker/ETF classification fix in plan prompt
+
+**Decision:** Added an explicit rule to the `plan` system prompt: if the company name is 2–5 uppercase letters (e.g. DRAM, SPY, AAPL), classify as `public`. This triggers `enrich_financials` via yfinance for ETFs and stocks that would otherwise be labelled `unknown`.
+
+**Why:** The LLM has no reliable prior that short uppercase strings are tickers. Without the rule, `DRAM` was classified as `unknown`, skipping the financial enrichment node entirely and losing structured NAV / expense-ratio data that yfinance returns instantly.
+
+---
+
 ## Production Upgrades (not built — 3-day scope)
 
 - **Parallel research fan-out** via LangGraph `Send` — significant speedup for plans

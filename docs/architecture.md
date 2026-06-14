@@ -26,21 +26,28 @@ follow-up questions over the persisted report via a RAG-lite chat interface.
 
 ```
                    ┌─→ enrich_financials ─┐   (public companies only)
-  plan ──route──→ research ───────────────┴──→ synthesize ──→ quality_gate
-                   ↑                                               │
-                   └────────── (gaps) re-research ◄───route────────┤
-                                                                   ↓ (pass / cap hit)
-                                                        strategize → generate_report → END
+  plan ──route──→  │                       ↓
+                   └──────────────→ research_dispatcher
+                                          │
+                          Send × N (parallel fan-out)
+                          ↓       ↓       ↓
+                       worker  worker  worker   ← ReAct agents (web_search + scrape_page)
+                          ↓       ↓       ↓
+                   synthesize ──→ quality_gate
+                        ↑               │
+                        └── re-research ┤  (gaps, revisions < 2)
+                                        ↓ (pass / cap hit)
+                              strategize → generate_report → END
 ```
 
 ### Conditional edges
 
 **After `plan`**
-- `company_type == "public"` → `enrich_financials` → `research`
-- anything else → `research`
+- `company_type == "public"` → `enrich_financials` → `research_dispatcher`
+- anything else → `research_dispatcher`
 
 **After `quality_gate`**
-- `quality_score < 0.7` AND `revisions < 2` → `research` (targeted re-research on gaps)
+- `quality_score < 0.7` AND `revisions < 2` → `research_dispatcher` (targeted re-research on gaps)
 - otherwise → `strategize`
 
 The re-research loop is the core quality mechanism. `MAX_REVISIONS = 2` is a hard cap
@@ -54,20 +61,29 @@ so the graph always terminates.
 - **Input:** `company_name`, `company_url`, `objective`
 - **Output:** `research_plan` (5–8 `ResearchTask` objects), `company_type`
 - **LLM:** yes — decomposes the objective into sub-questions, one per report section;
-  classifies company type (public / private / startup / unknown)
+  classifies company type (public / private / startup / unknown). Ticker-style names
+  (2–5 uppercase letters: AAPL, DRAM, SPY) are always classified as public.
 
 ### `enrich_financials`
 - **Input:** `company_name`
 - **Output:** `financials` dict (market cap, revenue, employees, sector, etc.)
-- **LLM:** no — pure yfinance lookup
+- **LLM:** no — yfinance lookup with proper ticker resolution via `yf.Search` and 15s timeout
 - **Degradation:** on failure, sets `financials = {}` and appends to `errors`; graph continues
 
-### `research`
-- **Input:** `research_plan`, `gaps`, `company_url`
-- **Output:** `sources` (accumulated), `scraped` (url → text)
-- **LLM:** no — Firecrawl `search` per sub-question (returns full markdown per result) + Firecrawl `scrape_url` for the company homepage
-- **Re-entry behavior:** on second pass, runs only the targeted `gaps`, not the full plan
-- **Degradation:** failed searches append to `errors` and are skipped; graph continues
+### `research_dispatcher`
+- **Input:** `research_plan` or `gaps` (on re-research pass)
+- **Output:** `Command(goto=[Send("research_worker", task) for task in tasks])`
+- **LLM:** no — pure fan-out logic using LangGraph `Send` + `Command`
+- Emits one `Send` per pending task; all workers run in parallel
+
+### `research_worker` (parallel, one instance per task)
+- **Input:** `current_task` (one `ResearchTask`), company context
+- **Output:** `sources[]`, `scraped{}` — auto-merged via `Annotated` reducers in state
+- **LLM:** yes — ReAct agent (`create_react_agent`) with two tools:
+  - `web_search(query)` — Firecrawl search, returns titles + snippets, appends to sources
+  - `scrape_page(url)` — Firecrawl scrape, returns full markdown, adds to scraped dict
+- The agent decides which tool to call and how many times (max `MAX_TOOL_STEPS = 3`)
+- **Degradation:** agent errors append to `errors`; partial sources are still returned
 
 ### `synthesize`
 - **Input:** `sources`, `scraped`, `financials`
@@ -114,12 +130,16 @@ This gives free recoverability — an interrupted run resumes from the last chec
 ResearchState
 ├── inputs:        session_id, company_name, company_url, objective
 ├── plan:          research_plan[], company_type
-├── evidence:      sources[], scraped{}, financials{}
+├── evidence:      sources[], scraped{}, financials{}   ← Annotated with merge reducers
 ├── analysis:      findings{}, confidence{}
 ├── quality loop:  quality_score, gaps[], revisions
+├── parallel:      current_task  (per-worker, set via Send)
 ├── output:        report{}
-└── observability: errors[], status
+└── observability: errors[], status                     ← Annotated with list append reducer
 ```
+
+`sources`, `scraped`, and `errors` use `Annotated` reducers so parallel `research_worker`
+outputs are automatically merged into the shared state after each super-step.
 
 `sources[]` carries a `tier` field on every item:
 - **Tier 1** — company's own domain / official filings (most trusted)
