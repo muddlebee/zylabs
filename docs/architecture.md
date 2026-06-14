@@ -69,14 +69,10 @@ flowchart TD
     class quality,report pure
 ```
 
-**Legend** — what each node calls externally:
-
-| Color | Calls | Nodes |
-|---|---|---|
-| 🔵 Blue | **LLM only** (DeepSeek reasoning/writing) | `plan`, `synthesize`, `strategize` |
-| 🟢 Green | **Firecrawl only** (web search/scrape) | `research` |
-| 🟡 Yellow | **Both** — Firecrawl search → LLM extract | `enrich_financials` |
-| ⚪ Grey | **Neither** — pure compute | `quality_gate`, `generate_report` |
+Nodes are colored by external dependency — 🔵 LLM, 🟢 Firecrawl, 🟡 both, ⚪ pure compute —
+which is also where the run's time and cost come from. The
+[Reasoning vs Retrieval](#reasoning-vs-retrieval--how-the-llm-and-web-search-divide-work)
+section below breaks down each node.
 
 ### Conditional edges
 
