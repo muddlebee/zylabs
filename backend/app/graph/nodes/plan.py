@@ -1,0 +1,76 @@
+import json
+import uuid
+import structlog
+
+from app.llm import get_llm
+from app.graph.state import ResearchState, ResearchTask, NodeError
+
+log = structlog.get_logger()
+
+SYSTEM_PROMPT = """You are a research planning assistant. Given a company and a meeting objective,
+decompose the research into 5-8 specific sub-questions that cover these sections:
+overview, products_services, target_customers, business_signals, risks_challenges.
+
+Also classify the company type as: public, private, startup, or unknown.
+
+Respond with JSON only, no markdown:
+{
+  "company_type": "public|private|startup|unknown",
+  "research_plan": [
+    {"question": "...", "section": "overview|products_services|target_customers|business_signals|risks_challenges"},
+    ...
+  ]
+}"""
+
+
+async def plan_node(state: ResearchState) -> dict:
+    session_id = state["session_id"]
+    log.info("plan_node.start", session_id=session_id, company=state["company_name"])
+
+    user_msg = (
+        f"Company: {state['company_name']}\n"
+        f"URL: {state['company_url']}\n"
+        f"Meeting objective: {state['objective']}"
+    )
+
+    try:
+        response = await get_llm().ainvoke([
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_msg},
+        ])
+        raw = response.content.strip()
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        data = json.loads(raw)
+
+        research_plan: list[ResearchTask] = [
+            ResearchTask(
+                id=str(uuid.uuid4()),
+                question=t["question"],
+                section=t["section"],
+                done=False,
+            )
+            for t in data["research_plan"]
+        ]
+
+        log.info("plan_node.done", session_id=session_id, tasks=len(research_plan),
+                 company_type=data["company_type"])
+        return {
+            "research_plan": research_plan,
+            "company_type": data.get("company_type", "unknown"),
+            "status": "Planning complete",
+        }
+
+    except Exception as exc:
+        log.error("plan_node.error", session_id=session_id, error=str(exc))
+        return {
+            "research_plan": [],
+            "company_type": "unknown",
+            "status": "Planning failed",
+            "errors": state.get("errors", []) + [
+                NodeError(node="plan", message=str(exc), recoverable=False)
+            ],
+        }

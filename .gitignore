@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Databases (runtime, not source)
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+
+# Env files with real keys
+backend/.env
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Firecrawl scratch
+.firecrawl/
+
+# OS
+.DS_Store
