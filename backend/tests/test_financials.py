@@ -1,0 +1,50 @@
+"""Unit tests for financial enrichment — no live API calls."""
+import asyncio
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from app.graph.nodes.financials import FINANCIAL_QUERY, financials_node
+
+
+def _source(url: str, title: str = "t", snippet: str = "revenue $1B market cap $10B CRWV") -> dict:
+    return {
+        "id": url,
+        "url": url,
+        "title": title,
+        "snippet": snippet,
+        "tier": 3,
+        "retrieved_at": "2026-01-01T00:00:00+00:00",
+    }
+
+
+class TestFinancialsNode:
+    def test_uses_snippet_only_search(self):
+        seen: dict = {}
+
+        def fake_search(query, company_name, company_url, **kwargs):
+            seen.update(kwargs)
+            seen["query"] = query
+            return [_source("https://example.com")]
+
+        mock_llm = MagicMock()
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=json.dumps({
+            "revenue": "$1B",
+            "market_cap": "$10B",
+            "symbol": "ACME",
+        })))
+
+        with patch("app.graph.nodes.financials.scrape_tool.search", side_effect=fake_search), \
+             patch("app.graph.nodes.financials.get_llm", return_value=mock_llm):
+            result = asyncio.run(financials_node({
+                "session_id": "s1",
+                "company_name": "Acme",
+                "company_url": "",
+                "errors": [],
+            }))
+
+        assert seen["query"] == FINANCIAL_QUERY
+        assert seen["scrape_results"] is False
+        assert seen["limit"] == 5
+        assert seen["timeout_ms"] == 15000
+        assert result["financials"]["revenue"] == "$1B"
+        assert result["financials"]["symbol"] == "ACME"
