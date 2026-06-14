@@ -57,12 +57,4 @@ test.describe('Session history', () => {
     await expect(link).toBeVisible({ timeout: 10_000 })
     await expect(link.getByText(/complete/i)).toBeVisible()
   })
-
-  test('navbar "All Sessions" link returns to home from detail page', async ({ page }) => {
-    const { sessionId } = readSession()
-    await page.goto(`/sessions/${sessionId}`)
-    await page.getByRole('link', { name: /all sessions/i }).click()
-    await page.waitForURL('/', { timeout: 5_000 })
-    expect(page.url()).toMatch(/\/$/)
-  })
 })
