@@ -6,6 +6,24 @@ A LangGraph-powered research workflow that takes a company name, URL, and meetin
 and produces a structured, source-grounded briefing in 8 sections. The user can then ask
 follow-up questions over the persisted report via a RAG-lite chat interface.
 
+```mermaid
+flowchart LR
+    user["React SPA"] -->|"REST + SSE"| api["FastAPI"]
+    api --> graph["LangGraph workflow"]
+    graph -->|"reasoning / writing"| llm[("DeepSeek / OpenAI")]
+    graph -->|"web search + scrape"| fc[("Firecrawl")]
+    graph -->|"checkpoint per step"| cp[("checkpoints.db")]
+    api -->|"sessions · reports · chat"| db[("research.db")]
+
+    classDef ext fill:#fef9c3,stroke:#a16207,color:#713f12;
+    class llm,fc ext
+```
+
+The LLM and Firecrawl are the only two external dependencies. Everything else — orchestration,
+state, persistence, streaming — is self-contained. See
+[Reasoning vs Retrieval](#reasoning-vs-retrieval--how-the-llm-and-web-search-divide-work) for
+exactly how those two are used.
+
 ---
 
 ## Stack
@@ -24,14 +42,41 @@ follow-up questions over the persisted report via a RAG-lite chat interface.
 
 ## Graph
 
+```mermaid
+flowchart TD
+    start([ start ]) --> plan
+
+    plan -. fan-out .-> financials["enrich_financials"]
+    plan -. fan-out .-> research["research"]
+
+    financials --> synthesize
+    research --> synthesize
+
+    synthesize --> quality{"quality_gate"}
+    quality -->|"score &lt; 0.7, revisions &lt; 2"| research
+    quality -->|"pass / cap hit"| strategize
+    strategize --> report["generate_report"]
+    report --> done([ END ])
+
+    classDef llm fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
+    classDef web fill:#dcfce7,stroke:#16a34a,color:#14532d;
+    classDef both fill:#fef9c3,stroke:#a16207,color:#713f12;
+    classDef pure fill:#f3f4f6,stroke:#6b7280,color:#374151;
+
+    class plan,synthesize,strategize llm
+    class research web
+    class financials both
+    class quality,report pure
 ```
-                  ┌─→ enrich_financials ─┐
-  plan ──fan-out──┤                      ├─→ synthesize ──→ quality_gate ──→ strategize ──→ generate_report ──→ END
-                  └─→ research ───────────┘        ▲                 │
-                          ▲                        │                 │
-                          └──── re-research (gaps) ◄──────route───────┘
-                               (score < 0.7 & revisions < 2)
-```
+
+**Legend** — what each node calls externally:
+
+| Color | Calls | Nodes |
+|---|---|---|
+| 🔵 Blue | **LLM only** (DeepSeek reasoning/writing) | `plan`, `synthesize`, `strategize` |
+| 🟢 Green | **Firecrawl only** (web search/scrape) | `research` |
+| 🟡 Yellow | **Both** — Firecrawl search → LLM extract | `enrich_financials` |
+| ⚪ Grey | **Neither** — pure compute | `quality_gate`, `generate_report` |
 
 ### Conditional edges
 
@@ -47,6 +92,59 @@ follow-up questions over the persisted report via a RAG-lite chat interface.
 
 The re-research loop is the core quality mechanism. `MAX_REVISIONS = 2` is a hard cap
 so the graph always terminates.
+
+---
+
+## Reasoning vs Retrieval — how the LLM and web search divide work
+
+This is a **retrieve-then-read (RAG) pipeline, not an agent with tools.** DeepSeek has no
+"web search" tool it can call; it never decides, mid-generation, to go fetch a page. The flow
+is fixed and deterministic: the LLM plans *what* to research, Firecrawl mechanically retrieves
+it, and the LLM reads the retrieved text back to write the briefing.
+
+```mermaid
+flowchart LR
+    P["plan<br/><b>LLM</b> decides WHAT to research"] -->|"fixed question list"| R["research<br/><b>Firecrawl</b> retrieves"]
+    R -->|"source snippets"| S["synthesize<br/><b>LLM</b> reads &amp; writes cited findings"]
+
+    classDef llm fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
+    classDef web fill:#dcfce7,stroke:#16a34a,color:#14532d;
+    class P,S llm
+    class R web
+```
+
+Three consequences worth being explicit about:
+
+1. **DeepSeek never autonomously triggers a search.** The only intelligence steering retrieval
+   is `plan` writing the sub-questions up front. Search relevance is capped by the quality of
+   that plan — nothing recovers a missed angle except the gap loop.
+2. **The model's own knowledge is used for *reasoning and writing*, never as a fact source.**
+   This is deliberate: `quality_gate` scores "grounding" by counting `source_ids`, so every
+   fact must trace to a retrieved source to stay citable. That's why even a household-name
+   company is fully web-researched rather than answered from the model's memory.
+3. **The re-research loop is gap-driven, not LLM-driven.** `quality_gate` deterministically
+   detects missing/low-confidence sections and feeds those gaps back as new search queries —
+   feedback by graph edge, not by tool-call.
+
+The only node that chains both in a single step is `enrich_financials` (search → LLM extract);
+the only node that *consumes* retrieval is `synthesize`. Everything else is purely one or the
+other:
+
+| Node | LLM (DeepSeek) | Web (Firecrawl) | Role |
+|---|:---:|:---:|---|
+| `plan` | ✅ | — | Decide what to research |
+| `enrich_financials` | ✅ | ✅ | Retrieve + extract financials |
+| `research` | — | ✅ | Retrieve evidence |
+| `synthesize` | ✅ | — | Read evidence → cited findings |
+| `quality_gate` | — | — | Score + emit gaps |
+| `strategize` | ✅ | — | Reason over findings → strategy |
+| `generate_report` | — | — | Assemble output |
+
+> **Why this design over an agentic tool-calling loop?** A fixed plan→retrieve→read pipeline is
+> cheaper (no extra LLM round-trips to decide each search), more predictable (you always know
+> which searches will run), and easier to make grounded (retrieval is mandatory, not optional).
+> The trade-off is less adaptivity — see `engineering-decisions.md` for the hybrid (LLM-drafts /
+> search-verifies) we'd adopt to claw some of that back.
 
 ---
 

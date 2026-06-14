@@ -94,29 +94,14 @@ MAX_REVISIONS=2
 
 ## Running Tests
 
-### Backend unit tests (no API keys required)
+Both layers are tested: fast deterministic unit tests on the backend's core logic, and
+browser-level E2E specs covering the full frontend user flow.
 
-```bash
-cd backend
-python3 -m pytest tests/ -q
-# 23 tests covering routing, quality scoring, report assembly
-```
-
-### Backend E2E tests (makes real API calls)
-
-```bash
-cd backend
-RUN_E2E=1 python3 -m pytest tests/test_e2e.py -v
-```
-
-### Frontend Playwright E2E
-
-```bash
-# Start backend (port 8001) and frontend (port 5173) first
-cd frontend
-npx playwright test
-npx playwright show-report   # view HTML report
-```
+| Layer | Tests | Covers |
+|---|---|---|
+| Backend unit | **30** (run in ~1s, no API keys) | conditional routing, quality scoring, report assembly, financial extraction, config/env loading |
+| Backend E2E | 7 (gated behind `RUN_E2E=1`) | full graph against live Firecrawl + LLM |
+| Frontend E2E | **5 Playwright specs** | form validation, session history, workflow progress, report sections, follow-up chat |
 
 ---
 

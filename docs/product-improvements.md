@@ -62,16 +62,18 @@ Allow users to trigger a targeted re-research on a single section (e.g. Business
 
 | Week | Focus | Deliverable |
 |------|-------|-------------|
-| 1 | Parallel fan-out | `Send`-based research, 5× faster pipeline |
+| 1 | Durable state + auth | Postgres + `AsyncPostgresSaver`, JWT auth, workspace scoping |
 | 2 | Source expansion | Apollo/Crunchbase enrichment for private companies; LinkedIn signal parsing |
-| 3 | Model tiering | DeepSeek for planning/quality, GPT-4o for synthesis/strategy; 40% cost reduction |
+| 3 | Model tiering | DeepSeek for planning/quality, GPT-4o for synthesis/strategy; ~40% cost reduction |
 | 4 | Streaming token output | Pipe LLM token stream through SSE so the report renders word-by-word, eliminating the perception of wait |
+
+*(Research parallelization + snippet-only search already shipped — see Engineering Decision #2.)*
 
 ---
 
 ## 6. Biggest Cost, Scaling, and Reliability Risks
 
-**Cost:** Firecrawl consumes 5–10 credits per research query. At 6 sub-questions per session, one full run costs ~60 credits. At scale (1,000 sessions/day) this is 60,000 credits/day — a meaningful line item. Mitigation: cache scraped pages by URL + TTL, deduplicate sources across sessions for the same company.
+**Cost:** Firecrawl is the main external spend. After the snippet-only change, research costs ~1 credit per sub-question plus a single homepage scrape — well under ~10 credits per run, down from ~60 when every result was full-scraped. At 1,000 sessions/day that's ~10k credits/day. Mitigation: `maxAge` caching to reuse recent pages, deduplicate sources across sessions for the same company, and the DeepSeek-drafts/search-verifies hybrid to cut search count further.
 
 **Scaling:** SQLite + single-process FastAPI cannot serve concurrent pipeline runs safely. Multiple runs writing to the same DB file causes lock contention. Mitigation: PostgreSQL, connection pooling (asyncpg), and background task workers (Celery or ARQ) separate from the API process.
 
