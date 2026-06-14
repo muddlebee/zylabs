@@ -17,9 +17,7 @@ interface FieldError {
 function validate(values: FormState): FieldError {
   const errors: FieldError = {}
   if (!values.company_name.trim()) errors.company_name = 'Required'
-  if (!values.company_url.trim()) {
-    errors.company_url = 'Required'
-  } else {
+  if (values.company_url.trim()) {
     try {
       new URL(values.company_url)
     } catch {
@@ -81,7 +79,7 @@ export default function SessionForm() {
           error={errors.company_name}
         />
         <Field
-          label="Company Website"
+          label="Company Website (optional)"
           id="company_url"
           type="url"
           placeholder="https://stripe.com"

@@ -53,7 +53,7 @@ app.add_middleware(
 
 class CreateSessionRequest(BaseModel):
     company_name: str
-    company_url: str
+    company_url: str = ""
     objective: str
 
 
