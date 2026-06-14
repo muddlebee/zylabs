@@ -132,3 +132,66 @@ Tier logic:
 - **Model tiering** — restore cheap/strong split for cost optimisation at scale
 - **Streaming token output** — pipe LLM token stream through SSE rather than waiting
   for full node completion
+
+---
+
+## Top Technical Debt Items
+
+1. **SQLite in production** — both `research.db` and `checkpoints.db` write to the
+   container filesystem. A redeploy wipes all session history. The fix is
+   `AsyncPostgresSaver` + a managed Postgres instance. Every other scalability
+   improvement is blocked behind this.
+
+2. **No authentication** — all sessions are world-readable via URL. The API has no
+   concept of a user, workspace, or token. Adding auth requires changes to every route
+   and the DB schema.
+
+3. **`asyncio.create_task` for background pipeline** — the pipeline runs as a detached
+   task in the FastAPI process. If the process restarts mid-run the task is silently lost
+   and the session is stuck in `running`. A proper task queue (ARQ, Celery) with a
+   worker process would make this recoverable without relying on the LangGraph checkpoint
+   alone.
+
+4. **Hardcoded news domain list in tier assignment** — `tools/scrape.py` has a small
+   inline set of "reputable news" domains for tier-2 classification. It misses many
+   legitimate sources and needs to be replaced with a maintained allowlist or a
+   domain-reputation API.
+
+5. **No pagination on `/sessions`** — the list endpoint returns all sessions. At 10,000
+   sessions this becomes a slow full-table scan. Needs `limit`/`offset` or cursor-based
+   pagination.
+
+---
+
+## Biggest Technical Risk
+
+**The re-research loop can hang silently.**
+
+If `quality_gate` scores below the threshold and `revisions < MAX_REVISIONS`, the graph
+re-enters `research_node`. If Firecrawl is degraded (rate-limited, returning empty
+markdown), the second pass produces the same low-quality sources, scores below threshold
+again, and the loop runs `MAX_REVISIONS` times before exiting — each pass consuming
+full pipeline latency. With `MAX_REVISIONS=2` this doubles the worst-case run time.
+Worse, if the LLM is unavailable during `synthesize`, the node logs a `NodeError` and
+returns empty findings. `quality_gate` then scores 0.0, the loop fires, and the same
+failure repeats until the revision cap is hit.
+
+**Mitigation implemented:** `NodeError` is appended to state and the graph always
+continues. `MAX_REVISIONS` caps the loop. But there is no circuit breaker that detects
+"we failed the same way twice" and exits early. That check would require comparing the
+current `errors` list to the previous revision's errors.
+
+---
+
+## What We Would Improve With 2 Additional Weeks
+
+**Week 1:**
+- Parallel `Send` fan-out in `research_node` — 5× latency reduction, highest user impact
+- PostgreSQL + `AsyncPostgresSaver` — required for any multi-user or cloud deployment
+- JWT auth with workspace scoping — unlocks team use and a SaaS billing model
+
+**Week 2:**
+- CRM push (Salesforce / HubSpot) — export briefing as a contact note with one click
+- Section-level refresh — re-research a single section without re-running the full graph
+- Streaming token output — pipe LLM tokens through SSE so the report renders
+  progressively rather than appearing all at once after a 90-second wait
