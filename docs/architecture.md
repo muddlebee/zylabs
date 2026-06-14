@@ -9,10 +9,10 @@ follow-up questions over the persisted report via a RAG-lite chat interface.
 ```mermaid
 flowchart LR
     user["React SPA"] -->|"REST + SSE"| api["FastAPI"]
-    api --> graph["LangGraph workflow"]
-    graph -->|"reasoning / writing"| llm[("DeepSeek / OpenAI")]
-    graph -->|"web search + scrape"| fc[("Firecrawl")]
-    graph -->|"checkpoint per step"| cp[("checkpoints.db")]
+    api --> wf["LangGraph workflow"]
+    wf -->|"reasoning / writing"| llm[("DeepSeek / OpenAI")]
+    wf -->|"web search + scrape"| fc[("Firecrawl")]
+    wf -->|"checkpoint per step"| cp[("checkpoints.db")]
     api -->|"sessions · reports · chat"| db[("research.db")]
 
     classDef ext fill:#fef9c3,stroke:#a16207,color:#713f12;
