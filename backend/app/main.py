@@ -112,7 +112,7 @@ async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "1.0.1"}
 
 
 @app.post("/sessions", status_code=201)

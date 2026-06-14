@@ -79,7 +79,7 @@ export default function SessionForm() {
           error={errors.company_name}
         />
         <Field
-          label="Company Website (optional)"
+          label="Company Website (optional, e.g. https://stripe.com)"
           id="company_url"
           type="url"
           placeholder="https://stripe.com"
