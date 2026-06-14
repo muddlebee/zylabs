@@ -43,27 +43,44 @@
 
 ### Must have (rubric-critical)
 
-- [ ] **Frontend** *(15% of grade)*
-  - Session create form (company name, URL, objective) with validation
-  - Session history list → links to detail
-  - Session detail: report rendered by section, sources with tier badges + links
-  - Live workflow progress UI driven by SSE stream
-  - Follow-up chat panel on detail page
-  - Loading skeletons, error states, empty states
-  - Responsive layout
+- [x] **Frontend** *(15% of grade)* — built, Vite+React, dev server running
+  - [x] Session create form with validation (name, URL, objective)
+  - [x] Session history list with status badges + relative timestamps
+  - [x] Session detail: report by section, sources with tier badges + links
+  - [x] Live workflow progress UI driven by SSE stream (animated stepper)
+  - [x] Follow-up chat panel with suggestion chips
+  - [x] Loading skeletons, error states, empty states
+  - [ ] Responsive layout (wired, needs mobile polish — see 07-responsive.spec.ts)
+
+- [ ] **Playwright E2E tests** — 5 of 7 spec files written, paused at 03-workflow-progress
+  - [x] 01-form-validation.spec.ts
+  - [x] 02-session-history.spec.ts
+  - [x] 03-workflow-progress.spec.ts
+  - [x] 04-report-sections.spec.ts
+  - [x] 05-follow-up-chat.spec.ts
+  - [ ] 06-api-contracts.spec.ts (not yet written)
+  - [ ] 07-responsive.spec.ts (not yet written)
+  - [ ] global-setup + helpers written; need `npm run test:e2e` script in package.json
 
 - [ ] **README.md** at repo root *(part of 15% docs)*
-  - Setup instructions (clone → env → `pip install` → `uvicorn`)
-  - How to run tests (`pytest` unit, `RUN_E2E=1 pytest` integration)
-  - Architecture diagram reference
 
 - [ ] **`docs/product-improvements.md`** *(part of 15% docs)*
-  - What would be built next with more time
-  - Parallel research fan-out, richer data sources, model tiering, etc.
 
 - [ ] **Docker + docker-compose** *(10% production)*
-  - `Dockerfile` for the backend
-  - `docker-compose.yml` wiring backend + (optionally) frontend
+
+---
+
+### Deployment status — LIVE ✓
+
+- [x] **Backend → Railway** — `https://backend-production-6a4c.up.railway.app`
+  - Deployed 2026-06-14; SQLite on writable container filesystem
+  - All env vars set (DeepSeek, Firecrawl, OpenAI, thresholds)
+  - `railway.toml` with `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+- [x] **Frontend → Vercel** — `https://frontend-umber-three-57.vercel.app`
+  - Detected as Vite automatically; `vercel.json` SPA rewrites in place
+  - `VITE_API_URL` env var points to Railway backend
+  - Build clean, status READY
 
 ### Nice to have (polish)
 
