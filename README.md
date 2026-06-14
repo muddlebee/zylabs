@@ -140,15 +140,20 @@ npx playwright show-report   # view HTML report
 See [`docs/architecture.md`](docs/architecture.md) for the full graph design, node descriptions, state schema, and SSE streaming implementation.
 
 ```
-plan → enrich_financials → research → synthesize → quality_gate → strategize → generate_report
-                                    ↑
-                           (score < 0.7, revisions < 2)
+       ┌─→ enrich_financials ─┐
+plan ──┤                      ├─→ synthesize → quality_gate → strategize → generate_report
+       └─→ research ───────────┘                    │
+               ↑                                    │
+               └──── re-research (score < 0.7, revisions < 2) ───┘
 ```
+
+`enrich_financials` and `research` run as parallel branches off `plan` and converge on
+`synthesize`. Sub-question searches run concurrently and snippet-only (no per-page scraping).
 
 ### Key Design Decisions
 
 - **Single LLM config** — one `MODEL_NAME`/`MODEL_PROVIDER` pair, switchable via env vars
-- **Firecrawl over httpx** — handles JS-rendered SPAs and bot protection; returns full markdown per result
+- **Firecrawl over httpx** — handles JS-rendered SPAs and bot protection; snippet-only search for sub-questions, full markdown scrape reserved for the company homepage
 - **AsyncSqliteSaver** — LangGraph checkpoint per session; graph is recoverable on restart
 - **SSE via asyncio.Queue** — `/run` starts a background task, `/stream` reads from a per-session queue
 - **RAG-lite chat** — report + sources stuffed into system prompt; no vector DB required at demo scale

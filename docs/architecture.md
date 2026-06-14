@@ -25,18 +25,21 @@ follow-up questions over the persisted report via a RAG-lite chat interface.
 ## Graph
 
 ```
-                   ┌─→ enrich_financials ─┐
-  plan ──route──→ research ───────────────┴──→ synthesize ──→ quality_gate
-                   ↑                                               │
-                   └────────── (gaps) re-research ◄───route────────┤
-                                                                   ↓ (pass / cap hit)
-                                                        strategize → generate_report → END
+                  ┌─→ enrich_financials ─┐
+  plan ──fan-out──┤                      ├─→ synthesize ──→ quality_gate ──→ strategize ──→ generate_report ──→ END
+                  └─→ research ───────────┘        ▲                 │
+                          ▲                        │                 │
+                          └──── re-research (gaps) ◄──────route───────┘
+                               (score < 0.7 & revisions < 2)
 ```
 
 ### Conditional edges
 
 **After `plan`**
-- always → `enrich_financials` → `research`
+- fans out to `enrich_financials` **and** `research` in parallel; both converge on `synthesize`
+- `enrich_financials` runs for every company type (private firms still carry funding/valuation
+  signal) — it's one cheap snippet search and, running concurrently with `research`, adds no
+  time to the critical path
 
 **After `quality_gate`**
 - `quality_score < 0.7` AND `revisions < 2` → `research` (targeted re-research on gaps)
@@ -64,7 +67,12 @@ so the graph always terminates.
 ### `research`
 - **Input:** `research_plan`, `gaps`, `company_url`
 - **Output:** `sources` (accumulated), `scraped` (url → text)
-- **LLM:** no — Firecrawl `search` per sub-question (returns full markdown per result) + Firecrawl `scrape_url` for the company homepage
+- **LLM:** no — one Firecrawl `search` per sub-question, all fanned out concurrently via
+  `asyncio.gather`, plus a single Firecrawl `scrape_url` of the company homepage
+- **Snippet-only searches:** sub-question searches request results *without* `scrape_options`,
+  so Firecrawl returns the result description rather than scraping each page's full markdown.
+  Downstream only ever reads `Source.snippet`, so full-page scrapes were paid-for-then-discarded
+  credits. Only the company homepage is scraped in full (synthesize reads it at `[:3000]`).
 - **Re-entry behavior:** on second pass, runs only the targeted `gaps`, not the full plan
 - **Degradation:** failed searches append to `errors` and are skipped; graph continues
 

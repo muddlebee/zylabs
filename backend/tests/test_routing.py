@@ -14,17 +14,9 @@ def _state(**overrides):
 
 
 class TestAfterPlan:
-    def test_public_company_fans_out_to_financials_and_research(self):
-        assert after_plan(_state(company_type="public")) == ["enrich_financials", "research"]
-
-    def test_startup_fans_out_to_financials_and_research(self):
-        assert after_plan(_state(company_type="startup")) == ["enrich_financials", "research"]
-
-    def test_private_company_skips_financials(self):
-        assert after_plan(_state(company_type="private")) == "research"
-
-    def test_unknown_skips_financials(self):
-        assert after_plan(_state(company_type="unknown")) == "research"
+    @pytest.mark.parametrize("company_type", ["public", "startup", "private", "unknown"])
+    def test_all_types_fan_out_to_financials_and_research(self, company_type):
+        assert after_plan(_state(company_type=company_type)) == ["enrich_financials", "research"]
 
 
 class TestAfterQualityGate:

@@ -19,21 +19,35 @@ with separate env vars.
 
 ---
 
-## 2. Sequential research (not parallel `Send` fan-out)
+## 2. Concurrent in-node research + snippet-only search
 
-**Decision:** `research_node` loops through sub-questions sequentially rather than fanning
-out with LangGraph `Send`.
+**Decision:** `research_node` fans its sub-question searches out concurrently with
+`asyncio.gather` (wrapping the sync Firecrawl client in `run_in_executor`), and requests
+results **snippet-only** (`scrape_results=False`) rather than scraping each result's full page.
+`enrich_financials` runs as a parallel graph branch alongside `research`, not as a serial
+pre-step.
 
-**Why:** The spec explicitly recommends this for the first build:
-> "Build sequential, upgrade to Send on day 3 if green."
+**Why:** The first build searched sequentially and full-scraped every result, which made
+research the dominant cost — minutes of wall time and ~30–50 Firecrawl scrape credits per run.
+Two facts made that pure waste: (1) the searches are independent, so they parallelize cleanly;
+and (2) downstream only ever reads `Source.snippet`, so the full-page markdown was truncated to
+600 chars and discarded. Snippet-only search returns the same usable text via the result
+`description` at no per-page scrape cost. Only the company homepage is still scraped in full,
+because `synthesize` actually reads it.
 
-Sequential is easier to debug when a Tavily call fails — you see exactly which question
-errored and in what order. Parallel fan-out would require a reducer to merge partial
-`sources[]` lists and handle partial failures gracefully.
+**Trade-off:** Concurrency needs the parallel financials/research branches to write `errors`
+and `status` in the same superstep, so those keys carry LangGraph reducers (dedupe-merge for
+`errors`, last-wins for `status`) in `state.py`. A debug-time downside vs. strict sequential
+ordering: failures from different questions interleave in the logs — acceptable, since each
+error still records its originating question.
 
-**Upgrade path:** Split `research_node` into a dispatcher that emits `Send(worker, task)`
-per sub-question and a `research_reducer` node that merges results. Document in
-`product-improvements.md`.
+**Measured result:** full Intel run dropped to ~53s end-to-end (research itself ~3.5s,
+overlapped with financials), with the critical path now dominated by the LLM nodes
+(`plan` + `synthesize` + `strategize`), not web search.
+
+**Further upgrade path:** for very large plans, a LangGraph `Send`-based worker fan-out with a
+`research_reducer` would scale beyond a single node; and a DeepSeek-drafts / search-verifies
+hybrid would cut the *number* of searches. See `product-improvements.md`.
 
 ---
 
@@ -101,16 +115,18 @@ Additionally, Firecrawl's `search` method with `scrape_options` returns full pag
 markdown per result — not 150-char snippets. This gives `synthesize` substantially more
 evidence to ground findings in, resulting in higher confidence scores.
 
-**Trade-off:** Requires a Firecrawl API key and consumes credits (~5–10 credits per
-search query). At 500k free credits this is negligible at demo scale. For production,
-cache scraped pages and deduplicate URLs to minimise spend.
+**Trade-off:** Requires a Firecrawl API key and consumes credits. Research searches are
+snippet-only (no per-page scrape), so cost is roughly one search credit per sub-question
+plus a single full scrape of the company homepage — well under ~10 Firecrawl calls per run.
+For production, add `maxAge` caching and deduplicate URLs across re-research loops to cut
+spend further.
 
 ---
 
 ## 8. Source tier assignment at retrieval time
 
-**Decision:** Every `Source` object gets a `tier` (1/2/3) assigned in `tools/tavily.py`
-at the moment it is retrieved, based on domain matching.
+**Decision:** Every `Source` object gets a `tier` (1/2/3) assigned in `tools/scrape.py`
+(`_assign_tier`) at the moment it is retrieved, based on domain matching.
 
 **Why:** Tier is used downstream in `quality_gate` (grounding score) and surfaced in the
 UI (tier badges on sources). Assigning it once at retrieval keeps all downstream code

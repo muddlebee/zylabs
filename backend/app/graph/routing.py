@@ -3,13 +3,11 @@ from app.graph.state import ResearchState
 
 
 def after_plan(state: ResearchState):
-    # Financials enrichment only carries signal for companies with public
-    # market/funding data. For private/unknown it returns noise, so skip it and
-    # save a Firecrawl search + an LLM call. When it does run, fan it out to run
-    # concurrently with research instead of as a serial pre-step.
-    if state.get("company_type") in ("public", "startup"):
-        return ["enrich_financials", "research"]
-    return "research"
+    # Run financials enrichment for every company type — private firms still have
+    # funding/valuation signal worth surfacing. It's one cheap snippet search, and
+    # we fan it out to run concurrently with research rather than as a serial
+    # pre-step, so it adds no time to the critical path.
+    return ["enrich_financials", "research"]
 
 
 def after_quality_gate(state: ResearchState) -> str:

@@ -80,20 +80,21 @@ zylabs/
 ## Graph flow
 
 ```
-plan ──→ enrich_financials ──→ research
-                                               │
-                                           synthesize
-                                               │
-                                          quality_gate
-                                          /          \
-              [score<0.7 & revisions<2] /            \ [pass / cap]
-                                  research          strategize
-                                                        │
-                                                 generate_report → END
+          ┌─→ enrich_financials ─┐
+plan ──────┤                     ├──→ synthesize
+          └─→ research ───────────┘        │
+                  ▲                   quality_gate
+                  │                   /          \
+[score<0.7 & revisions<2] ──────────/            \ [pass / cap]
+                                              strategize
+                                                  │
+                                           generate_report → END
 ```
 
 **Conditional edges:**
-- `after_plan`: `company_type == "public"` → `enrich_financials`, else → `research`
+- `after_plan`: fans out to **both** `enrich_financials` and `research` (parallel branches that
+  converge on `synthesize`). Financials runs for every company type — it's one snippet-only
+  search and, running concurrently with research, costs no critical-path time.
 - `after_quality_gate`: `quality_score < QUALITY_THRESHOLD AND revisions < MAX_REVISIONS` → `research` (re-research gaps), else → `strategize`
 
 ---
@@ -165,7 +166,7 @@ ResearchState:
 `synthesize_node` checks `sources` and `scraped` — if both empty it skips.
 Root causes:
 - Firecrawl credits exhausted (check: `curl https://api.firecrawl.dev/v1/team/credit-usage -H "Authorization: Bearer $FIRECRAWL_API_KEY"`)
-- `research_node` is catching all exceptions silently — check server logs for `research_node.tavily_failed` or `research_node.scrape_failed`
+- `research_node` is catching all exceptions silently — check server logs for `research_node.search_failed` or `research_node.scrape_failed`
 
 ### Frontend "not connecting to backend"
 Check `frontend/vite.config.ts` — proxy target must match the port uvicorn is running on (default `8001`).
@@ -186,14 +187,18 @@ Delete `checkpoints.db` and restart. Old checkpoint schema can conflict with new
 
 ## Firecrawl credit cost
 
-`scrape.search()` uses `scrape_options` which fetches full markdown per result:
-- 1 search + 5 pages scraped = **~6 credits per search call**
-- `research_node` calls search once per task (5–8 tasks per run) = **30–50 credits/run**
-- Re-research loop can double this
+Research uses **snippet-only** search (`scrape_results=False`, no `scrape_options`), so no
+per-page scraping is billed for sub-questions:
+- `research_node`: 1 `search` per sub-question (5–8/run) + 1 `scrape_url` of the company
+  homepage — the only full page fetched
+- `enrich_financials`: 1 snippet-only `search`
+- Re-research loop re-runs only the gap questions (usually 1–3), not the full plan
+
+A typical run is well under ~10 Firecrawl calls with **zero discarded full-page scrapes**.
+The old path scraped ~5 pages per search (~30–50 credits/run) then truncated each result to
+600 chars — paying for content nothing downstream read (only `Source.snippet` is ever used).
 
 Free plan: 1000 credits/month. Check balance before running multiple test sessions.
-
-**If credits run out:** switch `search()` in `tools/scrape.py` to use `_tavily()` instead of Firecrawl — Tavily has no per-page charge. The `TAVILY_API_KEY` is already in config.
 
 ---
 
@@ -201,5 +206,5 @@ Free plan: 1000 credits/month. Check balance before running multiple test sessio
 
 | Branch | What's in it |
 |---|---|
-| `main` | Stable. Sequential research node. |
+| `main` | Stable. Concurrent snippet-only research (`asyncio.gather`); financials fans out parallel with research for all company types. |
 | `feat/parallel-research-react-agent` | Parallel `Send` fan-out, ReAct agents per task, ticker classification fix. Not merged — synthesize "no evidence" bug being debugged (root cause: Firecrawl credits, not the parallel logic). |

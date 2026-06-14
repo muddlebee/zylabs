@@ -14,8 +14,8 @@
 - [x] LangGraph `StateGraph` with 7 nodes and 2 conditional edges
 - [x] All nodes implemented with real logic (no stubs)
   - [x] `plan` — LLM decomposes objective into sub-questions, classifies company type
-  - [x] `enrich_financials` — Firecrawl + LLM extraction, soft-skip on failure
-  - [x] `research` — Firecrawl search (full markdown per result) + Firecrawl scrape of company URL
+  - [x] `enrich_financials` — Firecrawl + LLM extraction, soft-skip on failure; runs in parallel with `research` for all company types
+  - [x] `research` — concurrent snippet-only Firecrawl searches (`asyncio.gather`) + one full Firecrawl scrape of the company URL
   - [x] `synthesize` — LLM writes grounded findings with source citations
   - [x] `quality_gate` — scoring (coverage + grounding + confidence), gap emission
   - [x] `strategize` — LLM generates discovery questions, outreach strategy, unknowns
@@ -105,6 +105,6 @@
 - `research.db` and `checkpoints.db` are written to the process working directory —
   make sure to `cd backend/` before running uvicorn or tests
 - The `.env` file must be present in `backend/` (copy from `.env.example` and fill keys)
-- `RUN_E2E=1 pytest tests/test_e2e.py` makes real API calls — costs Tavily + LLM credits
+- `RUN_E2E=1 pytest tests/test_e2e.py` makes real API calls — costs Firecrawl + LLM credits
 - Financial enrichment uses Firecrawl search + LLM extraction for all company types.
   (e.g. "AAPL") not the full name for better results

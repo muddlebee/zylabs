@@ -6,8 +6,8 @@
 
 ## 1. Five Weaknesses in the Current Design
 
-**1. Sequential research is slow.**
-The pipeline runs sub-questions one after another — a 6-question plan takes 6× the latency of a single search. On a live demo this is acceptable; for a product with SLA expectations it is not. Users waiting 90 seconds for a briefing will abandon.
+**1. Latency is now LLM-bound, not search-bound.**
+Research searches were the original bottleneck (sequential, full-page scrapes). They now fan out concurrently and snippet-only, and `enrich_financials` runs in parallel with `research`, so a full run is ~53s — and that time is now dominated by the three LLM nodes (`plan`, `synthesize`, `strategize`), not web search. The remaining lever is the LLM: trim the synthesize context, stream tokens, or adopt the DeepSeek-drafts/search-verifies hybrid (Improvement 4) to cut both latency and search count.
 
 **2. SQLite breaks at scale.**
 Both the application DB and the LangGraph checkpointer write to SQLite files on the local filesystem. A second uvicorn worker, a container restart, or a cloud deploy wipes state. This is a single-point-of-failure that cannot be scaled horizontally.
@@ -16,7 +16,7 @@ Both the application DB and the LangGraph checkpointer write to SQLite files on 
 Any user with the URL can see any session. There is no login, no workspace, no role separation. A sales team cannot share sessions safely, and a SaaS pricing model is impossible without identity.
 
 **4. Source quality is shallow for private companies.**
-yfinance covers public companies well. For private, pre-IPO, or international companies the financial enrichment node returns nothing, and Firecrawl's web search is the only signal. Research quality for the most interesting enterprise prospects (fast-growing, private) is systematically lower.
+Financial enrichment is now a Firecrawl search + LLM extraction that runs for every company type, so private firms do get funding/valuation signal where it exists publicly. But for pre-IPO or international companies that signal is thin, and web search remains the only source. Research quality for the most interesting enterprise prospects (fast-growing, private) is still systematically lower than for public companies.
 
 **5. The report is static — it cannot be updated.**
 Once generated, the report is frozen. If the company announces a funding round the next day, the user has no way to refresh a section without re-running the entire pipeline from scratch.
@@ -25,8 +25,8 @@ Once generated, the report is frozen. If the company announces a funding round t
 
 ## 2. Top 3 Improvements to Build Next
 
-**Priority 1 — Parallel research fan-out via LangGraph `Send`**
-Split `research_node` into a dispatcher that emits `Send(worker, question)` per sub-question and a `research_reducer` that merges partial `sources[]` lists. Expected speedup: 5–6× on a 6-question plan. This is the single highest-leverage change for user experience and requires no external dependencies.
+**Priority 1 — Cut LLM latency (search is no longer the bottleneck)**
+Basic parallelism is already shipped: sub-question searches fan out concurrently via `asyncio.gather` and `enrich_financials` runs in parallel with `research`, so a full run is ~53s and the critical path is now the LLM nodes, not web search. The next leverage points: (a) shrink the `synthesize` context (cap sources / snippet sizes) and stream its tokens to the UI; (b) adopt a DeepSeek-drafts/search-verifies hybrid to cut the *number* of searches; (c) for very large plans, graduate from in-node `asyncio.gather` to a LangGraph `Send`-based worker fan-out with a `research_reducer` for unbounded scaling.
 
 **Priority 2 — PostgreSQL persistence + multi-user auth**
 Replace `AsyncSqliteSaver` with `AsyncPostgresSaver` (already supported by `langgraph-checkpoint-postgres`), swap SQLite app DB for Postgres, add JWT-based auth with workspace scoping. Unlocks horizontal scaling, persistent state across deploys, and a SaaS billing model.
@@ -107,6 +107,6 @@ Allow users to trigger a targeted re-research on a single section (e.g. Business
 
 ## 10. What to Change First
 
-**Replace the sequential research loop with parallel `Send` fan-out.**
+**Done: parallelize research + snippet-only search. Next: cut LLM latency.**
 
-This is the change with the highest ratio of user impact to implementation complexity. The pipeline latency drop from ~90s to ~20s changes the product from "I'll run this while I make coffee" to "I'll run this while I look up their LinkedIn." That shift in perceived speed fundamentally changes adoption behavior — users run it for more accounts, more often. Everything else (better sources, richer sections, CRM push) is multiplied by that frequency. A slow product with great output is a tool people use occasionally. A fast product with good output is a habit.
+Parallelizing the research loop (concurrent searches + financials running alongside research) and dropping wasteful full-page scrapes already pulled a full run down to ~53s and slashed Firecrawl spend. That was the highest user-impact / lowest-complexity change, and it's shipped. The next frontier is the LLM critical path: streaming `synthesize` output and trimming its context would move perceived latency from "I'll run this while I make coffee" to "I'll run this while I look up their LinkedIn." That shift in perceived speed fundamentally changes adoption behavior — users run it for more accounts, more often. Everything else (better sources, richer sections, CRM push) is multiplied by that frequency. A slow product with great output is a tool people use occasionally. A fast product with good output is a habit.
