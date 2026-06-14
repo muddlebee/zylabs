@@ -25,7 +25,7 @@ Backend must be on **port 8001** — that's what Vite's dev proxy targets.
 | LLM | DeepSeek or OpenAI via `langchain_openai.ChatOpenAI` |
 | Web search | Firecrawl (`search` with `scrape_options`) |
 | URL scraping | Firecrawl `scrape_url` |
-| Financial data | yfinance (public companies, soft-skip on failure) |
+| Financial data | Firecrawl search + LLM extraction |
 | API | FastAPI + uvicorn |
 | DB | SQLAlchemy + SQLite (`research.db`) |
 | Checkpoints | `AsyncSqliteSaver` (`checkpoints.db`) |
@@ -53,7 +53,7 @@ zylabs/
 │   │   │   └── nodes/
 │   │   │       ├── plan.py         # LLM: decompose objective → research tasks
 │   │   │       ├── research.py     # Firecrawl search per task + scrape company URL
-│   │   │       ├── financials.py   # yfinance lookup (public companies only)
+│   │   │       ├── financials.py   # Firecrawl search + LLM firmographic extraction
 │   │   │       ├── synthesize.py   # LLM: write findings grounded in sources
 │   │   │       ├── quality.py      # score coverage/grounding/confidence, emit gaps
 │   │   │       ├── strategize.py   # LLM: discovery questions + outreach strategy
@@ -80,8 +80,7 @@ zylabs/
 ## Graph flow
 
 ```
-plan ──→ [public?] ──→ enrich_financials ──┐
-     └─────────────────────────────────────→ research
+plan ──→ enrich_financials ──→ research
                                                │
                                            synthesize
                                                │
@@ -147,7 +146,7 @@ ResearchState:
   company_type: "public"|"private"|"startup"|"unknown"
   sources: list[Source]                              # accumulated evidence
   scraped: dict[str, str]                            # url → markdown
-  financials: dict | None                            # yfinance data
+  financials: dict | None                            # Firecrawl + LLM extracted firmographics
   findings: dict[str, SectionFinding]                # 8 sections
   confidence: dict[str, float]
   quality_score: float
@@ -177,8 +176,8 @@ SQLite `research.db` persists across restarts. If it's missing, the session is g
 ### LangGraph checkpoint errors on startup
 Delete `checkpoints.db` and restart. Old checkpoint schema can conflict with new graph structure after major refactors.
 
-### yfinance hanging
-`financials_node` wraps yfinance in `asyncio.wait_for(..., timeout=15)`. If it still hangs, the executor thread may be blocked — increase timeout or disable yfinance in `.env` by setting an unusable ticker.
+### Financial snapshot empty
+`enrich_financials` uses Firecrawl search + LLM extraction. If it returns `{}`, check server logs for `financials_node.skipped` and verify Firecrawl credits/API key.
 
 ### Re-research loop runs MAX_REVISIONS times but quality stays low
 `quality_gate` scores below 0.7 when coverage < 1.0 (sections missing) or grounding = 0 (no `source_ids`). If Firecrawl returns empty markdown, `synthesize` has no content to cite. Check Firecrawl credit balance first.

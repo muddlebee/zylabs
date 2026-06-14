@@ -168,5 +168,5 @@ RUN_E2E=1 python3 -m pytest tests/test_e2e.py -v
 
 - Railway SQLite resets on redeploy (no persistent volume). Acceptable for demo.
 - Firecrawl may return empty markdown for CAPTCHA-heavy sites — `synthesize` falls back to snippet.
-- yfinance ticker resolution uses company name as-is — pass ticker symbol (e.g. `AAPL`) for public companies.
+- Financial enrichment uses Firecrawl search; pass the company website URL for better tier-1 results.
 - SSE stream times out at 120s if the pipeline hangs — check Railway logs for the error node.

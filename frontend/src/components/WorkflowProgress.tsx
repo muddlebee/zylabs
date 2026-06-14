@@ -4,7 +4,7 @@ import { api } from '../api'
 
 const NODES = [
   { key: 'plan',              label: 'Planning',          desc: 'Decomposing research objective' },
-  { key: 'enrich_financials', label: 'Financial Data',    desc: 'Fetching public market data' },
+  { key: 'enrich_financials', label: 'Financial Data',    desc: 'Searching web for firmographics' },
   { key: 'research',          label: 'Research',          desc: 'Searching & scraping sources' },
   { key: 'synthesize',        label: 'Synthesis',         desc: 'Analysing findings' },
   { key: 'quality_gate',      label: 'Quality Check',     desc: 'Scoring coverage & confidence' },
@@ -26,6 +26,7 @@ export default function WorkflowProgress({ sessionId, initialStatus, onComplete 
   const [failed, setFailed] = useState(initialStatus === 'failed')
   const [revisions, setRevisions] = useState(0)
   const esRef = useRef<EventSource | null>(null)
+  const completedGracefullyRef = useRef(initialStatus === 'completed')
 
   useEffect(() => {
     if (done) return
@@ -33,14 +34,23 @@ export default function WorkflowProgress({ sessionId, initialStatus, onComplete 
     const es = new EventSource(api.streamUrl(sessionId))
     esRef.current = es
 
+    const finish = (ok: boolean) => {
+      completedGracefullyRef.current = ok
+      setDone(true)
+      setFailed(!ok)
+      es.close()
+      onComplete()
+    }
+
     es.onmessage = (ev) => {
       try {
         const data = JSON.parse(ev.data)
-        if (data === null) {
-          // sentinel — stream complete
-          setDone(true)
-          es.close()
-          onComplete()
+        if (data === null || data.node === 'done') {
+          finish(true)
+          return
+        }
+        if (data.node === 'error' || data.node === 'timeout') {
+          finish(false)
           return
         }
         const event: StreamEvent = data
@@ -59,10 +69,10 @@ export default function WorkflowProgress({ sessionId, initialStatus, onComplete 
     }
 
     es.onerror = () => {
-      setDone(true)
-      setFailed(true)
       es.close()
-      onComplete()
+      // Browsers fire onerror when the SSE connection closes — not always a failure.
+      if (completedGracefullyRef.current) return
+      finish(false)
     }
 
     return () => { es.close() }
@@ -71,7 +81,14 @@ export default function WorkflowProgress({ sessionId, initialStatus, onComplete 
   function getNodeState(key: string): NodeState {
     const completed = events.filter(e => e.node === key)
     if (completed.length > 0) return 'done'
-    if (done) return 'pending'
+
+    const thisIdx = NODES.findIndex(n => n.key === key)
+
+    if (done) {
+      const hasLaterDone = events.some(e => NODES.findIndex(n => n.key === e.node) > thisIdx)
+      if (hasLaterDone) return 'skipped'
+      return 'pending'
+    }
 
     const lastEvent = events[events.length - 1]
     if (!lastEvent) {
@@ -79,9 +96,8 @@ export default function WorkflowProgress({ sessionId, initialStatus, onComplete 
     }
 
     const lastIdx = NODES.findIndex(n => n.key === lastEvent.node)
-    const thisIdx = NODES.findIndex(n => n.key === key)
 
-    // Check if this node was skipped (e.g. enrich_financials)
+    // Check if this node was skipped (e.g. enrich_financials on older runs)
     if (thisIdx > 0 && thisIdx < lastIdx) return 'skipped'
     if (thisIdx === lastIdx + 1) return 'active'
     return 'pending'

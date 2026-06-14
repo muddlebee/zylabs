@@ -15,7 +15,7 @@ follow-up questions over the persisted report via a RAG-lite chat interface.
 | Workflow orchestration | LangGraph 1.x (`StateGraph`) |
 | LLM | DeepSeek / OpenAI via `langchain-openai` (OpenAI-compatible) |
 | Web research + scraping | Firecrawl (`search` + `scrape_url`) |
-| Financial data | yfinance (public companies only, soft-skip) |
+| Financial data | Firecrawl search + LLM extraction (all company types) |
 | API | FastAPI + uvicorn |
 | Persistence | SQLAlchemy + SQLite (app tables) · AsyncSqliteSaver (graph checkpoints) |
 | Streaming | Server-Sent Events (SSE) via FastAPI `StreamingResponse` |
@@ -25,7 +25,7 @@ follow-up questions over the persisted report via a RAG-lite chat interface.
 ## Graph
 
 ```
-                   ┌─→ enrich_financials ─┐   (public companies only)
+                   ┌─→ enrich_financials ─┐
   plan ──route──→ research ───────────────┴──→ synthesize ──→ quality_gate
                    ↑                                               │
                    └────────── (gaps) re-research ◄───route────────┤
@@ -36,8 +36,7 @@ follow-up questions over the persisted report via a RAG-lite chat interface.
 ### Conditional edges
 
 **After `plan`**
-- `company_type == "public"` → `enrich_financials` → `research`
-- anything else → `research`
+- always → `enrich_financials` → `research`
 
 **After `quality_gate`**
 - `quality_score < 0.7` AND `revisions < 2` → `research` (targeted re-research on gaps)
@@ -57,9 +56,9 @@ so the graph always terminates.
   classifies company type (public / private / startup / unknown)
 
 ### `enrich_financials`
-- **Input:** `company_name`
-- **Output:** `financials` dict (market cap, revenue, employees, sector, etc.)
-- **LLM:** no — pure yfinance lookup
+- **Input:** `company_name`, `company_url`
+- **Output:** `financials` dict (market cap, revenue, employees, funding, etc.)
+- **LLM:** yes — extracts structured fields from Firecrawl search snippets
 - **Degradation:** on failure, sets `financials = {}` and appends to `errors`; graph continues
 
 ### `research`
@@ -198,7 +197,7 @@ once and reused across all nodes and chat turns.
 
 ## Failure Handling
 
-Every external call (Tavily, scraper, yfinance, LLM) is wrapped in `try/except`.
+Every external call (Firecrawl, LLM) is wrapped in `try/except`.
 On failure:
 1. A `NodeError` is appended to `state["errors"]` with `recoverable=True`
 2. The node returns partial results and continues

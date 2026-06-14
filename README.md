@@ -18,7 +18,7 @@ An AI-powered research tool that prepares sales and business teams for prospect 
 ## What It Does
 
 1. Enter a company name, website, and your meeting objective
-2. A 7-node LangGraph pipeline researches the company in real time (Firecrawl search + scrape, yfinance for public companies, LLM synthesis)
+2. A 7-node LangGraph pipeline researches the company in real time (Firecrawl search + scrape, LLM synthesis)
 3. A structured briefing is generated with 8 sections: Overview, Products & Services, Target Customers, Business Signals, Risks & Challenges, Discovery Questions, Outreach Strategy, Unknowns
 4. Follow-up chat lets you ask questions grounded in the report
 
@@ -33,7 +33,7 @@ An AI-powered research tool that prepares sales and business teams for prospect 
 | AI Workflow | LangGraph 1.x (`StateGraph` + `AsyncSqliteSaver`) |
 | LLM | DeepSeek (default) or OpenAI — switchable via env var |
 | Web Research | Firecrawl (search + scrape) |
-| Financial Data | yfinance (public companies) |
+| Financial Data | Firecrawl search + LLM extraction |
 | Streaming | Server-Sent Events (SSE) via `asyncio.Queue` |
 
 ---
@@ -140,10 +140,9 @@ npx playwright show-report   # view HTML report
 See [`docs/architecture.md`](docs/architecture.md) for the full graph design, node descriptions, state schema, and SSE streaming implementation.
 
 ```
-plan → [enrich_financials] → research → synthesize → quality_gate → strategize → generate_report
-           (public co.)                                    ↑                ↓
-                                                    (score < 0.7,    strategize
-                                                    revisions < 2)
+plan → enrich_financials → research → synthesize → quality_gate → strategize → generate_report
+                                    ↑
+                           (score < 0.7, revisions < 2)
 ```
 
 ### Key Design Decisions

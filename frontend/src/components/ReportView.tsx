@@ -89,8 +89,8 @@ const FINANCIAL_LABELS: Record<string, string> = {
   employees:      'Employees',
   founded_year:   'Founded',
   headquarters:   'Headquarters',
+  investors:      'Investors',
   sector:         'Sector',
-  pe_ratio:       'P/E Ratio',
   symbol:         'Ticker',
   description:    'Summary',
   source:         '',
@@ -106,11 +106,11 @@ function FinancialSnapshot({ financials }: { financials: Record<string, string |
     <div className="border border-c-border rounded-xl p-5 bg-surface">
       <SectionHeader
         title="Financial Snapshot"
-        trailing={financials.source ? (
+        trailing={
           <span className="text-xs text-ink-3">
-            via {financials.source === 'yfinance' ? 'Yahoo Finance' : 'web research'}
+            via Firecrawl web research
           </span>
-        ) : undefined}
+        }
       />
       <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3">
         {entries.map(([key, val]) => {

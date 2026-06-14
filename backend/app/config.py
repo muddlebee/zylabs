@@ -1,4 +1,10 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+_env_mtime: float = -1.0
 
 
 class Settings(BaseSettings):
@@ -24,3 +30,25 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def reload_env_if_changed() -> bool:
+    """Reload backend/.env and refresh settings when the file changes."""
+    global settings, _env_mtime
+
+    if not _ENV_PATH.exists():
+        return False
+
+    mtime = _ENV_PATH.stat().st_mtime
+    if mtime == _env_mtime:
+        return False
+
+    load_dotenv(_ENV_PATH, override=True)
+    settings = Settings()
+    _env_mtime = mtime
+    return True
+
+
+def get_firecrawl_api_key() -> str:
+    reload_env_if_changed()
+    return settings.firecrawl_api_key

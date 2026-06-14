@@ -1,12 +1,11 @@
 import uuid
 from datetime import datetime, timezone
-from functools import lru_cache
 from urllib.parse import urlparse
 
 from firecrawl import V1FirecrawlApp, V1ScrapeOptions
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from app.config import settings
+from app.config import get_firecrawl_api_key
 from app.graph.state import Source
 
 NEWS_DOMAINS = {
@@ -16,9 +15,18 @@ NEWS_DOMAINS = {
 }
 
 
-@lru_cache(maxsize=1)
+_client: V1FirecrawlApp | None = None
+_client_key: str | None = None
+
+
 def _client() -> V1FirecrawlApp:
-    return V1FirecrawlApp(api_key=settings.firecrawl_api_key)
+    global _client, _client_key
+
+    api_key = get_firecrawl_api_key()
+    if _client is None or _client_key != api_key:
+        _client = V1FirecrawlApp(api_key=api_key)
+        _client_key = api_key
+    return _client
 
 
 def _assign_tier(result_url: str, company_url: str) -> int:

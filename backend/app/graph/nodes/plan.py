@@ -12,6 +12,7 @@ decompose the research into 5-8 specific sub-questions that cover these sections
 overview, products_services, target_customers, business_signals, risks_challenges.
 
 Also classify the company type as: public, private, startup, or unknown.
+Use "public" for companies listed on a major stock exchange (e.g. CoreWeave/CRWV, Apple/AAPL).
 
 Respond with JSON only, no markdown:
 {

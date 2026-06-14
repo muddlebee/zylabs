@@ -17,14 +17,14 @@ class TestAfterPlan:
     def test_public_company_routes_to_financials(self):
         assert after_plan(_state(company_type="public")) == "enrich_financials"
 
-    def test_private_company_routes_to_research(self):
-        assert after_plan(_state(company_type="private")) == "research"
+    def test_private_company_routes_to_financials(self):
+        assert after_plan(_state(company_type="private")) == "enrich_financials"
 
-    def test_startup_routes_to_research(self):
-        assert after_plan(_state(company_type="startup")) == "research"
+    def test_startup_routes_to_financials(self):
+        assert after_plan(_state(company_type="startup")) == "enrich_financials"
 
-    def test_unknown_routes_to_research(self):
-        assert after_plan(_state(company_type="unknown")) == "research"
+    def test_unknown_routes_to_financials(self):
+        assert after_plan(_state(company_type="unknown")) == "enrich_financials"
 
 
 class TestAfterQualityGate:
