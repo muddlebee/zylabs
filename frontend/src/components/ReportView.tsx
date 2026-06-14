@@ -54,7 +54,10 @@ export default function ReportView({ report }: Props) {
 
       {/* Financial Snapshot */}
       {report.financials && Object.keys(report.financials).length > 0 && (
-        <FinancialSnapshot financials={report.financials} />
+        <FinancialSnapshot
+          financials={report.financials}
+          companyType={report.meta.company_type}
+        />
       )}
 
       {/* Sections */}
@@ -90,15 +93,47 @@ const FINANCIAL_LABELS: Record<string, string> = {
   founded_year:   'Founded',
   headquarters:   'Headquarters',
   investors:      'Investors',
+  latest_round:   'Latest Round',
   sector:         'Sector',
   symbol:         'Ticker',
   description:    'Summary',
   source:         '',
 }
 
-function FinancialSnapshot({ financials }: { financials: Record<string, string | number | string[] | null> }) {
-  const entries = Object.entries(financials).filter(
-    ([k, v]) => k !== 'source' && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)
+const PUBLIC_FIELD_ORDER = [
+  'symbol', 'market_cap', 'revenue', 'employees', 'founded_year',
+  'headquarters', 'sector', 'description',
+]
+
+const NON_PUBLIC_FIELD_ORDER = [
+  'revenue', 'funding_total', 'valuation', 'latest_round', 'investors',
+  'employees', 'founded_year', 'headquarters', 'sector', 'description',
+]
+
+function sortFinancialEntries(
+  entries: [string, string | number | string[] | null][],
+  companyType: string,
+) {
+  const order = companyType === 'public' ? PUBLIC_FIELD_ORDER : NON_PUBLIC_FIELD_ORDER
+  return [...entries].sort(([a], [b]) => {
+    const aRank = order.indexOf(a)
+    const bRank = order.indexOf(b)
+    return (aRank === -1 ? 999 : aRank) - (bRank === -1 ? 999 : bRank)
+  })
+}
+
+function FinancialSnapshot({
+  financials,
+  companyType,
+}: {
+  financials: Record<string, string | number | string[] | null>
+  companyType: string
+}) {
+  const entries = sortFinancialEntries(
+    Object.entries(financials).filter(
+      ([k, v]) => k !== 'source' && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)
+    ),
+    companyType,
   )
   if (!entries.length) return null
 

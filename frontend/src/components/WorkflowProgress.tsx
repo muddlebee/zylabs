@@ -17,11 +17,16 @@ type NodeState = 'pending' | 'active' | 'done' | 'skipped'
 interface Props {
   sessionId: string
   initialStatus: string
-  companyType?: string
+  financialsEnriched?: boolean
   onComplete: () => void
 }
 
-export default function WorkflowProgress({ sessionId, initialStatus, companyType, onComplete }: Props) {
+export default function WorkflowProgress({
+  sessionId,
+  initialStatus,
+  financialsEnriched,
+  onComplete,
+}: Props) {
   const [events, setEvents] = useState<StreamEvent[]>([])
   const [done, setDone]     = useState(initialStatus === 'completed' || initialStatus === 'failed')
   const [failed, setFailed] = useState(initialStatus === 'failed')
@@ -87,7 +92,7 @@ export default function WorkflowProgress({ sessionId, initialStatus, companyType
 
     // SSE events aren't persisted — revisiting a finished session has no event history.
     if (done && !failed && events.length === 0) {
-      if (key === 'enrich_financials' && companyType && companyType !== 'public') {
+      if (key === 'enrich_financials' && financialsEnriched === false) {
         return 'skipped'
       }
       return 'done'

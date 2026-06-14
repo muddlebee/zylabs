@@ -1,6 +1,7 @@
 import json
 import structlog
 
+from app.graph.financial_extract import build_evidence_text, extract_financials_from_text, merge_financials
 from app.llm import get_llm
 from app.graph.state import ResearchState, SectionFinding, NodeError
 
@@ -60,6 +61,41 @@ def _build_context(state: ResearchState) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+async def _merge_financials_from_sources(state: ResearchState) -> dict:
+    existing = dict(state.get("financials") or {})
+    sources = state.get("sources", [])
+    scraped = state.get("scraped", {})
+    if not sources and not scraped:
+        return existing
+
+    evidence = build_evidence_text(sources, scraped)
+    if not evidence.strip():
+        return existing
+
+    try:
+        extracted = await extract_financials_from_text(
+            state["company_name"],
+            evidence,
+            state.get("company_type", "unknown"),
+        )
+        merged = merge_financials(existing, extracted)
+        if merged != existing:
+            log.info(
+                "synthesize_node.financials_merged",
+                session_id=state["session_id"],
+                added=[k for k in merged if k not in existing or not existing.get(k)],
+                fields=list(merged.keys()),
+            )
+        return merged
+    except Exception as exc:
+        log.warning(
+            "synthesize_node.financials_merge_skipped",
+            session_id=state["session_id"],
+            error=str(exc),
+        )
+        return existing
+
+
 async def synthesize_node(state: ResearchState) -> dict:
     session_id = state["session_id"]
     log.info("synthesize_node.start", session_id=session_id,
@@ -67,11 +103,18 @@ async def synthesize_node(state: ResearchState) -> dict:
 
     errors = list(state.get("errors", []))
     existing_findings = dict(state.get("findings", {}))
+    merged_financials = await _merge_financials_from_sources(state)
+    state = {**state, "financials": merged_financials}
 
     context = _build_context(state)
     if not context.strip():
         log.warning("synthesize_node.no_context", session_id=session_id)
-        return {"findings": existing_findings, "confidence": {}, "status": "Synthesis skipped — no evidence"}
+        return {
+            "findings": existing_findings,
+            "confidence": {},
+            "financials": merged_financials,
+            "status": "Synthesis skipped — no evidence",
+        }
 
     user_msg = (
         f"Company: {state['company_name']}\n"
@@ -109,6 +152,7 @@ async def synthesize_node(state: ResearchState) -> dict:
         return {
             "findings": existing_findings,
             "confidence": confidence,
+            "financials": merged_financials,
             "status": "Synthesis complete",
         }
 
@@ -118,6 +162,7 @@ async def synthesize_node(state: ResearchState) -> dict:
         return {
             "findings": existing_findings,
             "confidence": {},
+            "financials": merged_financials,
             "errors": errors,
             "status": "Synthesis failed",
         }

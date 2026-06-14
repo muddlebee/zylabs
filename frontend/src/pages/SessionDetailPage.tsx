@@ -71,6 +71,8 @@ export default function SessionDetailPage() {
   const isRunning   = session.status === 'running' || session.status === 'pending'
   const isCompleted = session.status === 'completed'
   const isFailed    = session.status === 'failed'
+  const financialFields = Object.keys(session.report?.financials ?? {}).filter(k => k !== 'source')
+  const financialsEnriched = financialFields.length > 0
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-10">
@@ -114,7 +116,7 @@ export default function SessionDetailPage() {
               <WorkflowProgress
                 sessionId={session.session_id}
                 initialStatus={session.status}
-                companyType={session.report?.meta.company_type}
+                financialsEnriched={isCompleted ? financialsEnriched : undefined}
                 onComplete={handleWorkflowComplete}
               />
             )}
