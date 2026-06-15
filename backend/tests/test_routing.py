@@ -18,6 +18,9 @@ class TestAfterPlan:
     def test_all_types_fan_out_to_financials_and_research(self, company_type):
         assert after_plan(_state(company_type=company_type)) == ["enrich_financials", "research"]
 
+    def test_retrieval_unavailable_skips_to_report(self):
+        assert after_plan(_state(retrieval_unavailable=True)) == "generate_report"
+
 
 class TestAfterQualityGate:
     def test_low_score_under_cap_loops_back(self):
@@ -40,3 +43,13 @@ class TestAfterQualityGate:
     def test_zero_revisions_low_score_loops(self):
         state = _state(quality_score=0.1, revisions=0)
         assert after_quality_gate(state) == "research"
+
+    def test_retrieval_blocked_skips_research_loop(self):
+        state = _state(
+            quality_score=0.1,
+            revisions=1,
+            sources=[],
+            scraped={},
+            errors=[{"node": "research", "message": "402 credits", "recoverable": True}],
+        )
+        assert after_quality_gate(state) == "strategize"

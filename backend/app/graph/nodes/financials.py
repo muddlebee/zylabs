@@ -14,6 +14,7 @@ from app.graph.financial_extract import (
 )
 from app.graph.state import ResearchState, NodeError
 from app.tools import scrape as scrape_tool
+from app.tools.firecrawl_errors import friendly_firecrawl_error
 
 log = structlog.get_logger()
 
@@ -24,6 +25,9 @@ async def financials_node(state: ResearchState) -> dict:
     company_url = state.get("company_url", "")
     company_type = state.get("company_type", "unknown")
     errors = list(state.get("errors", []))
+
+    if state.get("retrieval_unavailable"):
+        return {"status": "Financials skipped — web search unavailable"}
 
     log.info(
         "financials_node.start",
@@ -83,5 +87,9 @@ async def financials_node(state: ResearchState) -> dict:
 
     except Exception as exc:
         log.warning("financials_node.skipped", session_id=session_id, error=str(exc))
-        errors.append(NodeError(node="enrich_financials", message=str(exc), recoverable=True))
+        errors.append(NodeError(
+            node="enrich_financials",
+            message=friendly_firecrawl_error(exc),
+            recoverable=True,
+        ))
         return {"financials": {}, "errors": errors, "status": "Financials unavailable"}

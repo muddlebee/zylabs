@@ -5,6 +5,13 @@ from app.graph.state import ResearchState
 log = structlog.get_logger()
 
 
+def _report_errors(state: ResearchState) -> list:
+    errors = list(state.get("errors") or [])
+    if state.get("retrieval_unavailable"):
+        return [e for e in errors if e.get("node") == "plan"]
+    return errors
+
+
 async def report_node(state: ResearchState) -> dict:
     session_id = state["session_id"]
     log.info("report_node.start", session_id=session_id)
@@ -20,7 +27,9 @@ async def report_node(state: ResearchState) -> dict:
             "quality_score": state.get("quality_score", 0.0),
             "revisions": state.get("revisions", 0),
             "company_type": state.get("company_type", "unknown"),
-            "errors": state.get("errors", []),
+            "retrieval_unavailable": bool(state.get("retrieval_unavailable")),
+            "stopped_at": "plan" if state.get("retrieval_unavailable") else None,
+            "errors": _report_errors(state),
         },
     }
 

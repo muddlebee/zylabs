@@ -70,3 +70,4 @@ class ResearchState(TypedDict):
     report: Optional[dict]
     errors: Annotated[list[NodeError], _merge_errors]
     status: Annotated[str, _take_last]
+    retrieval_unavailable: bool

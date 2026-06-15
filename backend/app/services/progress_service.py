@@ -4,15 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-WORKFLOW_NODES = (
-    "plan",
-    "enrich_financials",
-    "research",
-    "synthesize",
-    "quality_gate",
-    "strategize",
-    "generate_report",
-)
+from app.graph.retrieval import research_status
 
 FACTUAL_SECTIONS = (
     "overview",
@@ -25,15 +17,35 @@ FACTUAL_SECTIONS = (
 STRATEGY_SECTIONS = ("discovery_questions", "outreach_strategy", "unknowns")
 
 
-def events_from_checkpoint(values: dict[str, Any] | None) -> list[dict[str, str]]:
+def _event(node: str, status: str, errors: list | None = None) -> dict[str, Any]:
+    event: dict[str, Any] = {"node": node, "status": status}
+    if errors:
+        event["errors"] = errors
+    return event
+
+
+def events_from_checkpoint(values: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Infer completed workflow nodes from persisted graph state."""
     if not values:
         return []
 
-    events: list[dict[str, str]] = []
+    events: list[dict[str, Any]] = []
 
     if values.get("research_plan"):
-        events.append({"node": "plan", "status": "Planning complete"})
+        plan_errors = [
+            e for e in values.get("errors") or []
+            if e.get("node") == "plan"
+        ]
+        if values.get("retrieval_unavailable"):
+            status = values.get("status", "Web research unavailable")
+            events.append(_event("plan", status, plan_errors or None))
+        else:
+            events.append(_event("plan", "Planning complete", plan_errors or None))
+
+    if values.get("retrieval_unavailable"):
+        if values.get("report"):
+            events.append(_event("generate_report", "Stopped at planning"))
+        return events
 
     financials = values.get("financials")
     fin_errors = [
@@ -42,10 +54,23 @@ def events_from_checkpoint(values: dict[str, Any] | None) -> list[dict[str, str]
     ]
     if financials is not None or fin_errors:
         status = "Financials enriched" if financials else "Financials unavailable"
-        events.append({"node": "enrich_financials", "status": status})
+        events.append(_event("enrich_financials", status, fin_errors or None))
 
-    if values.get("sources") or values.get("scraped"):
-        events.append({"node": "research", "status": "Research complete"})
+    research_errors = [
+        e for e in values.get("errors") or []
+        if e.get("node") == "research"
+    ]
+    if values.get("sources") or values.get("scraped") or research_errors:
+        plan = values.get("research_plan") or []
+        questions = [t["question"] for t in plan if isinstance(t, dict) and t.get("question")]
+        status = research_status(
+            questions=questions,
+            prior_source_count=0,
+            source_count=len(values.get("sources") or []),
+            scraped=values.get("scraped") or {},
+            research_errors=research_errors,
+        )
+        events.append(_event("research", status, research_errors or None))
 
     findings = values.get("findings") or {}
     factual_done = any(
@@ -55,9 +80,9 @@ def events_from_checkpoint(values: dict[str, Any] | None) -> list[dict[str, str]
     synth_errors = [e for e in values.get("errors") or [] if e.get("node") == "synthesize"]
     if factual_done or synth_errors:
         status = values.get("status", "Synthesis complete")
-        if "Synthesis" not in status:
-            status = "Synthesis complete"
-        events.append({"node": "synthesize", "status": status})
+        if "Synthesis" not in status and not factual_done:
+            status = synth_errors[0]["message"] if synth_errors else "Synthesis skipped"
+        events.append(_event("synthesize", status, synth_errors or None))
 
     if values.get("revisions", 0) > 0:
         score = values.get("quality_score", 0.0)
@@ -66,10 +91,14 @@ def events_from_checkpoint(values: dict[str, Any] | None) -> list[dict[str, str]
             "status": f"Quality check complete (score={score:.2f})",
         })
 
-    if any(findings.get(section, {}).get("content") for section in STRATEGY_SECTIONS):
-        events.append({"node": "strategize", "status": "Strategy complete"})
+    strategy_errors = [e for e in values.get("errors") or [] if e.get("node") == "strategize"]
+    if any(findings.get(section, {}).get("content") for section in STRATEGY_SECTIONS) or strategy_errors:
+        status = "Strategy complete"
+        if strategy_errors and not any(findings.get(section, {}).get("content") for section in STRATEGY_SECTIONS):
+            status = strategy_errors[0]["message"]
+        events.append(_event("strategize", status, strategy_errors or None))
 
     if values.get("report"):
-        events.append({"node": "generate_report", "status": "Report ready"})
+        events.append(_event("generate_report", "Report ready"))
 
     return events

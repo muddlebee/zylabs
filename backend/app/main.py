@@ -109,7 +109,10 @@ async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
                     continue
                 status = node_state.get("status", f"{node_name} running")
                 log.info("graph.node_update", session_id=session_id, node=node_name, status=status)
-                _append_event(session_id, {"node": node_name, "status": status})
+                event: dict = {"node": node_name, "status": status}
+                if node_state.get("errors"):
+                    event["errors"] = node_state["errors"]
+                _append_event(session_id, event)
 
         # Retrieve final state and persist report
         final = await graph_module.graph.aget_state(config)
@@ -118,7 +121,12 @@ async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
             db = next(db_factory())
             try:
                 session_service.save_report(db, session_id, report)
-                session_service.update_session_status(db, session_id, "completed")
+                final_status = (
+                    "failed"
+                    if final.values.get("retrieval_unavailable")
+                    else "completed"
+                )
+                session_service.update_session_status(db, session_id, final_status)
             finally:
                 db.close()
 
@@ -214,6 +222,7 @@ async def run_session(session_id: str, db: Session = Depends(get_db)):
         "revisions": 0,
         "report": None,
         "errors": [],
+        "retrieval_unavailable": False,
         "status": "Starting",
     }
 

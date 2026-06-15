@@ -23,6 +23,12 @@ export interface SectionFinding {
   confidence: number
 }
 
+export interface WorkflowError {
+  node: string
+  message: string
+  recoverable: boolean
+}
+
 export interface Report {
   session_id: string
   company_name: string
@@ -34,7 +40,9 @@ export interface Report {
     quality_score: number
     revisions: number
     company_type: string
-    errors: Array<{ node: string; message: string; recoverable: boolean }>
+    retrieval_unavailable?: boolean
+    stopped_at?: 'plan' | null
+    errors: WorkflowError[]
   }
 }
 
@@ -51,6 +59,7 @@ export interface ChatMessage {
 export interface StreamEvent {
   node: string
   status: string
+  errors?: WorkflowError[]
 }
 
 export interface WorkflowProgress {

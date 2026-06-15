@@ -2,9 +2,18 @@ import json
 import structlog
 
 from app.llm import get_llm
+from app.graph.retrieval import has_research_evidence
 from app.graph.state import ResearchState, SectionFinding, NodeError
 
 log = structlog.get_logger()
+
+FACTUAL_SECTIONS = (
+    "overview",
+    "products_services",
+    "target_customers",
+    "business_signals",
+    "risks_challenges",
+)
 
 SYSTEM_PROMPT = """You are a strategic sales advisor. Given research findings about a company,
 produce three strategic outputs to help a salesperson prepare for a meeting.
@@ -36,6 +45,16 @@ async def strategize_node(state: ResearchState) -> dict:
     findings = dict(state.get("findings", {}))
     errors = list(state.get("errors", []))
     gaps = state.get("gaps", [])
+
+    has_factual = any(
+        findings.get(section, {}).get("content")
+        for section in FACTUAL_SECTIONS
+    )
+    if not has_factual and not has_research_evidence(state):
+        msg = "Strategy skipped — no research evidence to base recommendations on"
+        log.warning("strategize_node.skipped", session_id=session_id, reason=msg)
+        errors.append(NodeError(node="strategize", message=msg, recoverable=False))
+        return {"findings": findings, "errors": errors, "status": msg}
 
     findings_summary = "\n\n".join(
         f"## {k.replace('_', ' ').title()}\n{v['content']}"

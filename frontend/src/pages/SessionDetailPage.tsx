@@ -4,7 +4,9 @@ import { api } from '../api'
 import type { SessionDetail } from '../types'
 import WorkflowProgress from '../components/WorkflowProgress'
 import ReportView from '../components/ReportView'
+import StoppedAtPlanningView from '../components/StoppedAtPlanningView'
 import ChatPanel from '../components/ChatPanel'
+import { isStoppedAtPlanning, planningStopReason } from '../errorDisplay'
 
 function DetailSkeleton() {
   return (
@@ -88,6 +90,10 @@ export default function SessionDetailPage() {
   const isFailed    = session.status === 'failed'
   const financialFields = Object.keys(session.report?.financials ?? {}).filter(k => k !== 'source')
   const financialsEnriched = financialFields.length > 0
+  const reportErrors = session.report?.meta.errors ?? []
+  const stoppedAtPlanning = session.report?.meta.stopped_at === 'plan'
+    || isStoppedAtPlanning(reportErrors, session.report?.meta.stopped_at)
+  const planningReason = planningStopReason(reportErrors) ?? 'Web research is unavailable'
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-10">
@@ -124,7 +130,7 @@ export default function SessionDetailPage() {
             </div>
 
             {/* Status */}
-            <StatusBadge status={session.status} />
+            <StatusBadge status={session.status} stoppedAtPlanning={stoppedAtPlanning} />
 
             {/* Workflow stepper */}
             {(isRunning || isCompleted || isFailed) && (
@@ -132,6 +138,8 @@ export default function SessionDetailPage() {
                 sessionId={session.session_id}
                 initialStatus={session.status}
                 financialsEnriched={isCompleted ? financialsEnriched : undefined}
+                initialErrors={reportErrors}
+                stoppedAtPlanning={stoppedAtPlanning}
                 onComplete={handleWorkflowComplete}
               />
             )}
@@ -167,7 +175,14 @@ export default function SessionDetailPage() {
             </div>
           )}
 
-          {session.report && (
+          {session.report && stoppedAtPlanning && (
+            <StoppedAtPlanningView
+              companyName={session.company_name}
+              reason={planningReason}
+            />
+          )}
+
+          {session.report && !stoppedAtPlanning && (
             <div className="space-y-12">
               <ReportView report={session.report} />
 
@@ -187,17 +202,18 @@ export default function SessionDetailPage() {
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, stoppedAtPlanning }: { status: string; stoppedAtPlanning?: boolean }) {
   const configs: Record<string, { label: string; cls: string }> = {
     pending:   { label: 'Pending',   cls: 'text-ink-3 bg-surface border-c-border' },
     running:   { label: 'Running',   cls: 'text-accent bg-accent-light border-accent/30' },
     completed: { label: 'Complete',  cls: 'text-c-green bg-c-green-lt border-c-green/30' },
     failed:    { label: 'Failed',    cls: 'text-c-red bg-c-red-lt border-c-red/30' },
   }
-  const cfg = configs[status] ?? configs.pending
+  const effectiveStatus = stoppedAtPlanning ? 'failed' : status
+  const cfg = configs[effectiveStatus] ?? configs.pending
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${cfg.cls}`}>
-      {status === 'running' && (
+      {status === 'running' && !stoppedAtPlanning && (
         <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
       )}
       {cfg.label}

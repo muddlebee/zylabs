@@ -2,6 +2,7 @@ import json
 import structlog
 
 from app.graph.financial_extract import build_evidence_text, extract_financials_from_text, merge_financials
+from app.graph.retrieval import no_evidence_message
 from app.llm import get_llm
 from app.graph.state import ResearchState, SectionFinding, NodeError
 
@@ -108,12 +109,15 @@ async def synthesize_node(state: ResearchState) -> dict:
 
     context = _build_context(state)
     if not context.strip():
-        log.warning("synthesize_node.no_context", session_id=session_id)
+        msg = no_evidence_message(errors)
+        log.warning("synthesize_node.no_context", session_id=session_id, reason=msg)
+        errors.append(NodeError(node="synthesize", message=msg, recoverable=False))
         return {
             "findings": existing_findings,
             "confidence": {},
             "financials": merged_financials,
-            "status": "Synthesis skipped — no evidence",
+            "errors": errors,
+            "status": f"Synthesis skipped — {msg}",
         }
 
     user_msg = (

@@ -25,6 +25,22 @@ def test_through_synthesis():
     ]
 
 
+def test_research_failure_status_from_checkpoint():
+    values = {
+        "research_plan": [{"question": "What do they sell?"}],
+        "sources": [],
+        "scraped": {},
+        "status": "Report ready",
+        "errors": [
+            {"node": "research", "message": "402 Payment Required: Insufficient credits", "recoverable": True},
+        ],
+    }
+    events = events_from_checkpoint(values)
+    research = next(e for e in events if e["node"] == "research")
+    assert "failed" in research["status"].lower() or "firecrawl" in research["status"].lower()
+    assert research["errors"]
+
+
 def test_completed_workflow():
     values = {
         "research_plan": [{"id": "1"}],

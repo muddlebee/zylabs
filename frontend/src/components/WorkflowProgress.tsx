@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { StreamEvent } from '../types'
+import type { StreamEvent, WorkflowError } from '../types'
 import { api } from '../api'
+import { dedupeErrorsForDisplay, isStoppedAtPlanning, nodeLabel, planningStopReason } from '../errorDisplay'
 
 const NODES = [
   { key: 'plan',              label: 'Planning',          desc: 'Decomposing research objective' },
@@ -15,13 +16,48 @@ const NODES = [
 const PARALLEL_AFTER_PLAN = new Set(['enrich_financials', 'research'])
 const SEQUENTIAL_AFTER_PARALLEL = ['synthesize', 'quality_gate', 'strategize', 'generate_report']
 
-type NodeState = 'pending' | 'active' | 'done' | 'skipped'
+type NodeState = 'pending' | 'active' | 'done' | 'skipped' | 'error'
 type SessionStatus = 'pending' | 'running' | 'completed' | 'failed'
+
+const ERROR_STATUS_RE = /\bfailed\b|\bunavailable\b|\bskipped\b|\berror\b/i
+
+function mergeWorkflowErrors(events: StreamEvent[], initialErrors: WorkflowError[] = []): WorkflowError[] {
+  const seen = new Set<string>()
+  const merged: WorkflowError[] = []
+  for (const err of [...initialErrors, ...events.flatMap(e => e.errors ?? [])]) {
+    const key = `${err.node}:${err.message}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(err)
+  }
+  return merged
+}
+
+function latestEventForNode(events: StreamEvent[], node: string): StreamEvent | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i].node === node) return events[i]
+  }
+  return undefined
+}
+
+function nodeHasError(
+  node: string,
+  events: StreamEvent[],
+  persistedErrors: WorkflowError[] = [],
+): boolean {
+  if (persistedErrors.some(err => err.node === node)) return true
+  const latest = latestEventForNode(events, node)
+  if (!latest) return false
+  if ((latest.errors?.length ?? 0) > 0) return true
+  return ERROR_STATUS_RE.test(latest.status)
+}
 
 interface Props {
   sessionId: string
   initialStatus: string
   financialsEnriched?: boolean
+  initialErrors?: WorkflowError[]
+  stoppedAtPlanning?: boolean
   onComplete: () => void
 }
 
@@ -57,7 +93,10 @@ function getNodeState(
   done: boolean,
   failed: boolean,
   financialsEnriched?: boolean,
+  persistedErrors: WorkflowError[] = [],
 ): NodeState {
+  if (nodeHasError(key, events, persistedErrors)) return 'error'
+
   const completed = inferCompleted(events)
   if (completed.has(key)) return 'done'
 
@@ -66,6 +105,7 @@ function getNodeState(
     if (key === 'enrich_financials' && financialsEnriched === false) {
       return 'skipped'
     }
+    if (persistedErrors.some(err => err.node === key)) return 'error'
     return 'done'
   }
 
@@ -98,6 +138,8 @@ export default function WorkflowProgress({
   sessionId,
   initialStatus,
   financialsEnriched,
+  initialErrors = [],
+  stoppedAtPlanning = false,
   onComplete,
 }: Props) {
   const [events, setEvents] = useState<StreamEvent[]>([])
@@ -237,6 +279,31 @@ export default function WorkflowProgress({
   }, [sessionId, done, finish, resolveViaApi, startPolling, stopPolling])
 
   const lastStatus = events[events.length - 1]?.status ?? ''
+  const workflowErrors = dedupeErrorsForDisplay(mergeWorkflowErrors(events, initialErrors))
+  const haltedAtPlanning = stoppedAtPlanning || isStoppedAtPlanning(workflowErrors)
+  const stopReason = planningStopReason(workflowErrors)
+
+  if (haltedAtPlanning) {
+    return (
+      <div className="space-y-3">
+        <h3 className="text-xs font-semibold tracking-widest text-ink-3 uppercase">
+          Workflow
+        </h3>
+        <div className="flex gap-3">
+          <NodeDot state="error" />
+          <div>
+            <p className="text-sm font-medium text-c-red">Planning failed</p>
+            <p className="text-xs text-ink-3 mt-0.5">Workflow stopped — no research was run</p>
+          </div>
+        </div>
+        {stopReason && (
+          <p className="text-xs text-ink-2 leading-relaxed pt-2 border-t border-c-border-sub">
+            {stopReason}
+          </p>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-1">
@@ -253,7 +320,7 @@ export default function WorkflowProgress({
 
       <div className="relative">
         {NODES.map((node, idx) => {
-          const state = getNodeState(node.key, events, done, failed, financialsEnriched)
+          const state = getNodeState(node.key, events, done, failed, financialsEnriched, initialErrors)
           const isLast = idx === NODES.length - 1
           return (
             <div key={node.key} className="flex gap-3">
@@ -273,6 +340,7 @@ export default function WorkflowProgress({
                   <span className={`text-sm font-medium leading-none transition-colors ${
                     state === 'done'    ? 'text-ink'
                     : state === 'active' ? 'text-accent'
+                    : state === 'error' ? 'text-c-red'
                     : state === 'skipped' ? 'text-ink-3 line-through'
                     : 'text-ink-3'
                   }`}>
@@ -283,9 +351,19 @@ export default function WorkflowProgress({
                       <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
                     </svg>
                   )}
+                  {state === 'error' && (
+                    <svg className="w-3.5 h-3.5 text-c-red shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
+                    </svg>
+                  )}
                 </div>
                 {state === 'active' && (
                   <p className="text-xs text-ink-3 mt-0.5 animate-pulse">{node.desc}</p>
+                )}
+                {state === 'error' && (
+                  <p className="text-xs text-c-red mt-0.5 leading-snug">
+                    {latestEventForNode(events, node.key)?.status}
+                  </p>
                 )}
               </div>
             </div>
@@ -293,18 +371,46 @@ export default function WorkflowProgress({
         })}
       </div>
 
+      {workflowErrors.length > 0 && (
+        <div className="pt-3 border-t border-c-border-sub space-y-2">
+          <p className="text-xs font-semibold text-c-red uppercase tracking-wide">
+            Retrieval issues
+          </p>
+          <ul className="space-y-1.5">
+            {workflowErrors.map(err => (
+              <li key={`${err.node}:${err.message}`} className="text-xs text-ink-2 leading-snug">
+                <span className="font-medium text-ink">{nodeLabel(err.node)}</span>
+                {' — '}
+                {err.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {lastStatus && !done && (
         <p className="text-xs text-ink-3 pt-3 border-t border-c-border-sub">
           {lastStatus}
         </p>
       )}
 
-      {done && !failed && (
+      {done && !failed && workflowErrors.length === 0 && (
         <div className="flex items-center gap-2 pt-3 border-t border-c-border-sub">
           <svg className="w-4 h-4 text-c-green" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
           </svg>
           <span className="text-xs font-medium text-c-green">Research complete</span>
+        </div>
+      )}
+
+      {done && !failed && workflowErrors.length > 0 && (
+        <div className="flex items-center gap-2 pt-3 border-t border-c-border-sub">
+          <svg className="w-4 h-4 text-c-red shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 0010 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+          </svg>
+          <span className="text-xs font-medium text-c-red">
+            Completed with retrieval errors — report may be incomplete
+          </span>
         </div>
       )}
 
@@ -327,6 +433,13 @@ function NodeDot({ state }: { state: NodeState }) {
         <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="currentColor">
           <path d="M10 3L4.5 8.5 2 6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
         </svg>
+      </div>
+    )
+  }
+  if (state === 'error') {
+    return (
+      <div className="w-5 h-5 rounded-full bg-c-red-lt border border-c-red/40 flex items-center justify-center shrink-0">
+        <span className="w-2 h-2 rounded-full bg-c-red" />
       </div>
     )
   }

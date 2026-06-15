@@ -1,9 +1,11 @@
 import json
 import uuid
+import asyncio
 import structlog
 
 from app.llm import get_llm
 from app.graph.state import ResearchState, ResearchTask, NodeError
+from app.tools.preflight import check_firecrawl_ready
 
 log = structlog.get_logger()
 
@@ -59,9 +61,26 @@ async def plan_node(state: ResearchState) -> dict:
 
         log.info("plan_node.done", session_id=session_id, tasks=len(research_plan),
                  company_type=data["company_type"])
+
+        ok, firecrawl_msg = await asyncio.get_event_loop().run_in_executor(
+            None, check_firecrawl_ready,
+        )
+        if not ok:
+            log.warning("plan_node.firecrawl_unavailable", session_id=session_id, reason=firecrawl_msg)
+            return {
+                "research_plan": research_plan,
+                "company_type": data.get("company_type", "unknown"),
+                "retrieval_unavailable": True,
+                "status": "Web research unavailable",
+                "errors": state.get("errors", []) + [
+                    NodeError(node="plan", message=firecrawl_msg, recoverable=False),
+                ],
+            }
+
         return {
             "research_plan": research_plan,
             "company_type": data.get("company_type", "unknown"),
+            "retrieval_unavailable": False,
             "status": "Planning complete",
         }
 

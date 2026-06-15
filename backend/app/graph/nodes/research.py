@@ -1,8 +1,10 @@
 import asyncio
 
 import structlog
+from app.graph.retrieval import research_status
 from app.graph.state import ResearchState, NodeError
 from app.tools import scrape as scrape_tool
+from app.tools.firecrawl_errors import friendly_firecrawl_error
 
 log = structlog.get_logger()
 
@@ -11,9 +13,14 @@ async def research_node(state: ResearchState) -> dict:
     session_id = state["session_id"]
     log.info("research_node.start", session_id=session_id)
 
+    if state.get("retrieval_unavailable"):
+        return {"status": "Research skipped — web search unavailable"}
+
     sources = list(state.get("sources", []))
+    prior_source_count = len(sources)
     scraped = dict(state.get("scraped", {}))
     errors = list(state.get("errors", []))
+    errors_before = len(errors)
     research_plan = [dict(t) for t in state.get("research_plan", [])]
 
     gaps = state.get("gaps", [])
@@ -26,6 +33,7 @@ async def research_node(state: ResearchState) -> dict:
     company_url = state["company_url"]
     company_name = state["company_name"]
     loop = asyncio.get_event_loop()
+    search_error_msg: str | None = None
 
     # Scrape the company URL once — the only page we keep in full (synthesize reads
     # it at [:3000]). Runs concurrently with the searches below.
@@ -38,13 +46,15 @@ async def research_node(state: ResearchState) -> dict:
             log.info("research_node.scraped", session_id=session_id, url=company_url, chars=len(text))
         except Exception as exc:
             log.warning("research_node.scrape_failed", session_id=session_id, error=str(exc))
-            errors.append(NodeError(node="research", message=f"Scrape failed: {exc}", recoverable=True))
+            nonlocal search_error_msg
+            msg = friendly_firecrawl_error(exc)
+            if search_error_msg is None:
+                search_error_msg = msg
+                errors.append(NodeError(node="research", message=msg, recoverable=True))
             scraped[company_url] = ""
 
-    # Snippet-only search per question, fanned out concurrently. Downstream only ever
-    # reads Source.snippet, so full-page scrapes here were paid-for-and-discarded
-    # Firecrawl credits — we now take the search description and skip the scrape.
     async def _search(question: str) -> list:
+        nonlocal search_error_msg
         try:
             return await loop.run_in_executor(
                 None,
@@ -55,7 +65,10 @@ async def research_node(state: ResearchState) -> dict:
         except Exception as exc:
             log.warning("research_node.search_failed", session_id=session_id,
                         question=question, error=str(exc))
-            errors.append(NodeError(node="research", message=f"Search failed for '{question}': {exc}", recoverable=True))
+            msg = friendly_firecrawl_error(exc)
+            if search_error_msg is None:
+                search_error_msg = msg
+                errors.append(NodeError(node="research", message=msg, recoverable=True))
             return []
 
     results = await asyncio.gather(
@@ -75,11 +88,30 @@ async def research_node(state: ResearchState) -> dict:
         if not task["done"] and (not gaps or task["question"] in gaps):
             task["done"] = True
 
-    log.info("research_node.done", session_id=session_id, sources=len(sources))
+    research_errors = errors[errors_before:]
+    if questions_to_run and not research_errors:
+        new_sources = len(sources) - prior_source_count
+        has_scraped = any(text for text in scraped.values())
+        if new_sources == 0 and not has_scraped:
+            errors.append(NodeError(
+                node="research",
+                message="All web searches returned no results",
+                recoverable=True,
+            ))
+            research_errors = errors[errors_before:]
+
+    status = research_status(
+        questions=questions_to_run,
+        prior_source_count=prior_source_count,
+        source_count=len(sources),
+        scraped=scraped,
+        research_errors=research_errors,
+    )
+    log.info("research_node.done", session_id=session_id, sources=len(sources), status=status)
     return {
         "sources": sources,
         "scraped": scraped,
         "research_plan": research_plan,
         "errors": errors,
-        "status": "Research complete",
+        "status": status,
     }

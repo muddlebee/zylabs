@@ -67,3 +67,19 @@ class TestReportNode:
         result = await report_node(_state(findings={}, sources=[]))
         assert result["report"]["sections"] == {}
         assert result["report"]["sources"] == []
+
+    async def test_retrieval_unavailable_keeps_plan_error_only(self):
+        result = await report_node(_state(
+            retrieval_unavailable=True,
+            findings={},
+            sources=[],
+            errors=[
+                {"node": "plan", "message": "Credits exhausted", "recoverable": False},
+                {"node": "synthesize", "message": "skipped", "recoverable": False},
+            ],
+        ))
+        meta = result["report"]["meta"]
+        assert meta["stopped_at"] == "plan"
+        assert meta["retrieval_unavailable"] is True
+        assert len(meta["errors"]) == 1
+        assert meta["errors"][0]["node"] == "plan"
