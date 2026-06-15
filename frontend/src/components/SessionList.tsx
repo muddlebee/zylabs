@@ -59,15 +59,15 @@ export default function SessionList({ sessions, loading }: Props) {
         <li key={s.session_id}>
           <Link
             to={`/sessions/${s.session_id}`}
-            className="flex items-center justify-between py-4 group no-underline"
+            className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between py-4 group no-underline"
           >
-            <div className="flex-1 min-w-0 pr-4">
+            <div className="flex-1 min-w-0 sm:pr-4">
               <p className="text-sm font-medium text-ink group-hover:text-accent transition-colors truncate">
                 {s.company_name}
               </p>
               <p className="text-xs text-ink-3 mt-0.5 truncate">{s.objective}</p>
             </div>
-            <div className="flex items-center gap-4 shrink-0">
+            <div className="flex items-center justify-between sm:justify-start gap-3 sm:gap-4 shrink-0 w-full sm:w-auto">
               <StatusBadge status={s.status} />
               <span className="text-xs text-ink-3 tabular-nums">{formatAge(s.created_at)}</span>
               <svg className="w-4 h-4 text-ink-3 group-hover:text-accent transition-colors" viewBox="0 0 20 20" fill="currentColor">

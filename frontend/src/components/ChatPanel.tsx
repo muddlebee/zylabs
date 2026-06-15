@@ -90,7 +90,7 @@ export default function ChatPanel({ sessionId }: Props) {
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-3 py-2 max-h-96">
+      <div className="flex-1 overflow-y-auto space-y-3 py-2 max-h-80 sm:max-h-96">
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
@@ -138,7 +138,7 @@ export default function ChatPanel({ sessionId }: Props) {
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="flex gap-2 mt-3 pt-3 border-t border-c-border-sub">
+      <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2 mt-3 pt-3 border-t border-c-border-sub">
         <textarea
           rows={1}
           value={input}
@@ -146,7 +146,7 @@ export default function ChatPanel({ sessionId }: Props) {
           onKeyDown={handleKeyDown}
           placeholder="Ask a follow-up…"
           disabled={loading}
-          className="flex-1 px-3 py-2.5 text-sm bg-surface border border-c-border rounded-lg resize-none
+          className="w-full sm:flex-1 px-3 py-2.5 text-sm bg-surface border border-c-border rounded-lg resize-none
             focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-colors
             disabled:opacity-50 placeholder-ink-3"
           style={{ minHeight: '40px', maxHeight: '120px', overflowY: 'auto' }}
@@ -154,7 +154,7 @@ export default function ChatPanel({ sessionId }: Props) {
         <button
           type="submit"
           disabled={!input.trim() || loading}
-          className="px-4 py-2 bg-ink text-bg text-sm font-medium rounded-lg
+          className="w-full sm:w-auto px-4 py-2 bg-ink text-bg text-sm font-medium rounded-lg
             hover:bg-ink-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
         >
           Send
