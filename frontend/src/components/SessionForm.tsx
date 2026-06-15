@@ -14,6 +14,13 @@ interface FieldError {
   objective?: string
 }
 
+const SAMPLE_SESSION: FormState = {
+  company_name: 'Stripe',
+  company_url: '',
+  objective:
+    'Understand their payment infrastructure needs ahead of our enterprise demo next week',
+}
+
 function validate(values: FormState): FieldError {
   const errors: FieldError = {}
   if (!values.company_name.trim()) errors.company_name = 'Required'
@@ -32,11 +39,7 @@ function validate(values: FormState): FieldError {
 
 export default function SessionForm() {
   const navigate = useNavigate()
-  const [values, setValues] = useState<FormState>({
-    company_name: '',
-    company_url: '',
-    objective: '',
-  })
+  const [values, setValues] = useState<FormState>(SAMPLE_SESSION)
   const [errors, setErrors] = useState<FieldError>({})
   const [submitting, setSubmitting] = useState(false)
   const [serverError, setServerError] = useState('')

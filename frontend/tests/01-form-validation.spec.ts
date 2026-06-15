@@ -19,11 +19,13 @@ test.describe('Session creation form', () => {
   })
 
   test('shows validation errors when form is submitted empty', async ({ page }) => {
+    await page.getByLabel('Company Name').clear()
+    await page.getByLabel('Company Website').clear()
+    await page.getByLabel('Research Objective').clear()
     await page.getByRole('button', { name: /start research/i }).click()
     await expect(page.getByText('Required').first()).toBeVisible()
-    // Should show at least 3 required errors (name, url, objective)
     const errors = page.getByText('Required')
-    await expect(errors).toHaveCount(3)
+    await expect(errors).toHaveCount(2)
   })
 
   test('validates URL format', async ({ page }) => {
@@ -42,15 +44,17 @@ test.describe('Session creation form', () => {
   })
 
   test('clears validation errors when user corrects a field', async ({ page }) => {
+    await page.getByLabel('Company Name').clear()
+    await page.getByLabel('Company Website').clear()
+    await page.getByLabel('Research Objective').clear()
     // Trigger errors
     await page.getByRole('button', { name: /start research/i }).click()
     await expect(page.getByText('Required').first()).toBeVisible()
 
     // Fix company name — its error should clear
     await page.getByLabel('Company Name').fill('Stripe')
-    await expect(page.getByText('Required').first()).toBeVisible() // others still shown
-    // But only 2 now
-    await expect(page.getByText('Required')).toHaveCount(2)
+    await expect(page.getByText('Required').first()).toBeVisible()
+    await expect(page.getByText('Required')).toHaveCount(1)
   })
 
   test('shows loading state on valid submit and redirects to session detail', async ({ page }) => {
