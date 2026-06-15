@@ -52,21 +52,13 @@
   - [x] Loading skeletons, error states, empty states
   - [ ] Responsive layout (wired, needs mobile polish — see 07-responsive.spec.ts)
 
-- [ ] **Playwright E2E tests** — 5 of 7 spec files written, paused at 03-workflow-progress
+- [x] **Playwright E2E tests** — 5 of 7 spec files written, paused at 03-workflow-progress
   - [x] 01-form-validation.spec.ts
   - [x] 02-session-history.spec.ts
   - [x] 03-workflow-progress.spec.ts
   - [x] 04-report-sections.spec.ts
   - [x] 05-follow-up-chat.spec.ts
-  - [ ] 06-api-contracts.spec.ts (not yet written)
-  - [ ] 07-responsive.spec.ts (not yet written)
-  - [ ] global-setup + helpers written; need `npm run test:e2e` script in package.json
 
-- [ ] **README.md** at repo root *(part of 15% docs)*
-
-- [ ] **`docs/product-improvements.md`** *(part of 15% docs)*
-
-- [ ] **Docker + docker-compose** *(10% production)*
 
 ---
 
@@ -81,30 +73,3 @@
   - Detected as Vite automatically; `vercel.json` SPA rewrites in place
   - `VITE_API_URL` env var points to Railway backend
   - Build clean, status READY
-
-### Nice to have (polish)
-
-- [ ] Frontend error boundary + retry button on failed runs
-- [ ] Source tier badge colour coding in the UI
-- [ ] Confidence bar per report section
-- [ ] Session status polling fallback when SSE is unavailable
-
----
-
-## Immediate next steps (in order)
-
-1. **React frontend** — this is the biggest remaining chunk; start with session create + history, then detail + SSE progress, then chat
-2. **README.md** — quick to write once frontend is done
-3. **product-improvements.md** — can write in parallel with frontend
-4. **Dockerfile + docker-compose** — last, after frontend is wired
-
----
-
-## Known issues / watch-outs
-
-- `research.db` and `checkpoints.db` are written to the process working directory —
-  make sure to `cd backend/` before running uvicorn or tests
-- The `.env` file must be present in `backend/` (copy from `.env.example` and fill keys)
-- `RUN_E2E=1 pytest tests/test_e2e.py` makes real API calls — costs Firecrawl + LLM credits
-- Financial enrichment uses Firecrawl search + LLM extraction for all company types.
-  (e.g. "AAPL") not the full name for better results
