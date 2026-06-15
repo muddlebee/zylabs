@@ -1,4 +1,4 @@
-import type { Session, SessionDetail, ChatMessage } from './types'
+import type { Session, SessionDetail, ChatMessage, WorkflowProgress } from './types'
 
 // In production (Vercel), point at the Railway backend. In dev, Vite proxies /api → localhost:8001.
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
@@ -48,7 +48,12 @@ export const api = {
     return request<ChatMessage[]>(`/sessions/${id}/chat`)
   },
 
-  streamUrl(id: string) {
-    return `${BASE}/sessions/${id}/stream`
+  getProgress(id: string) {
+    return request<WorkflowProgress>(`/sessions/${id}/progress`)
+  },
+
+  streamUrl(id: string, after = 0) {
+    const suffix = after > 0 ? `?after=${after}` : ''
+    return `${BASE}/sessions/${id}/stream${suffix}`
   },
 }

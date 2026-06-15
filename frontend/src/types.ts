@@ -52,3 +52,9 @@ export interface StreamEvent {
   node: string
   status: string
 }
+
+export interface WorkflowProgress {
+  session_id: string
+  status: Session['status']
+  events: StreamEvent[]
+}

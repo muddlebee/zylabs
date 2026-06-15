@@ -148,46 +148,80 @@ export default function WorkflowProgress({
   useEffect(() => {
     if (done) return
 
+    let cancelled = false
     finishingRef.current = false
-    const es = new EventSource(api.streamUrl(sessionId))
-    esRef.current = es
 
-    es.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data)
-        if (data === null || data.node === 'done') {
-          finish(true)
-          return
+    const appendEvent = (event: StreamEvent) => {
+      setEvents(prev => {
+        const lastResearch = prev.findLastIndex(e => e.node === 'research')
+        const lastQuality  = prev.findLastIndex(e => e.node === 'quality_gate')
+        if (event.node === 'research' && lastQuality > lastResearch) {
+          setRevisions(r => r + 1)
         }
-        if (data.node === 'error' || data.node === 'timeout') {
-          // Stream ended without history (refresh, proxy drop, late join) — check DB status.
-          void resolveViaApi()
-          if (data.node === 'timeout') startPolling()
-          return
-        }
-        const event: StreamEvent = data
-        setEvents(prev => {
-          const lastResearch = prev.findLastIndex(e => e.node === 'research')
-          const lastQuality  = prev.findLastIndex(e => e.node === 'quality_gate')
-          if (event.node === 'research' && lastQuality > lastResearch) {
-            setRevisions(r => r + 1)
+        return [...prev, event]
+      })
+    }
+
+    const connectStream = (after: number) => {
+      const es = new EventSource(api.streamUrl(sessionId, after))
+      esRef.current = es
+
+      es.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data)
+          if (data === null || data.node === 'done') {
+            finish(true)
+            return
           }
-          return [...prev, event]
-        })
-      } catch {
-        // ignore parse errors
+          if (data.node === 'error' || data.node === 'timeout') {
+            void resolveViaApi()
+            if (data.node === 'timeout') startPolling()
+            return
+          }
+          appendEvent(data)
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      es.onerror = () => {
+        es.close()
+        if (completedGracefullyRef.current || finishingRef.current) return
+        void resolveViaApi()
+        startPolling()
       }
     }
 
-    es.onerror = () => {
-      es.close()
-      if (completedGracefullyRef.current || finishingRef.current) return
-      void resolveViaApi()
-      startPolling()
-    }
+    void (async () => {
+      let after = 0
+      try {
+        const progress = await api.getProgress(sessionId)
+        if (cancelled) return
+
+        if (progress.events.length > 0) {
+          setEvents(progress.events)
+          after = progress.events.length
+        }
+
+        const status = progress.status as SessionStatus
+        if (status === 'completed') {
+          finish(true)
+          return
+        }
+        if (status === 'failed') {
+          finish(false)
+          return
+        }
+      } catch {
+        // Fall back to live SSE only.
+      }
+
+      if (!cancelled) connectStream(after)
+    })()
 
     return () => {
-      es.close()
+      cancelled = true
+      esRef.current?.close()
       stopPolling()
     }
   }, [sessionId, done, finish, resolveViaApi, startPolling, stopPolling])

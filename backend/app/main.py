@@ -12,11 +12,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import get_db, init_db
+from app.db import get_db, init_db, SessionLocal
 import app.graph.build as graph_module
 from app.graph.build import build_graph
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from app.services import session_service, chat_service
+from app.services.progress_service import events_from_checkpoint
 
 structlog.configure(
     wrapper_class=structlog.make_filtering_bound_logger(
@@ -25,8 +26,10 @@ structlog.configure(
 )
 log = structlog.get_logger()
 
-# session_id -> asyncio.Queue for SSE updates
-active_streams: dict[str, asyncio.Queue] = {}
+# In-memory workflow event log — survives SSE reconnects within a single process.
+session_events: dict[str, list[dict]] = {}
+running_sessions: set[str] = set()
+stream_signals: dict[str, asyncio.Event] = {}
 
 
 @asynccontextmanager
@@ -70,9 +73,32 @@ def _session_or_404(session_id: str, db: Session):
     return session
 
 
-async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
-    queue = active_streams.get(session_id)
+def _append_event(session_id: str, event: dict) -> None:
+    session_events.setdefault(session_id, []).append(event)
+    signal = stream_signals.get(session_id)
+    if signal:
+        signal.set()
+
+
+async def _workflow_events(session_id: str) -> list[dict[str, str]]:
+    """Return buffered events, falling back to checkpoint reconstruction."""
+    buffered = session_events.get(session_id)
+    if buffered:
+        return buffered
+
+    if graph_module.graph is None:
+        return []
+
     config = {"configurable": {"thread_id": session_id}}
+    state = await graph_module.graph.aget_state(config)
+    return events_from_checkpoint(state.values if state else None)
+
+
+async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
+    config = {"configurable": {"thread_id": session_id}}
+    running_sessions.add(session_id)
+    session_events[session_id] = []
+    stream_signals[session_id] = asyncio.Event()
 
     try:
         async for chunk in graph_module.graph.astream(initial_state, config=config, stream_mode="updates"):
@@ -83,8 +109,7 @@ async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
                     continue
                 status = node_state.get("status", f"{node_name} running")
                 log.info("graph.node_update", session_id=session_id, node=node_name, status=status)
-                if queue:
-                    await queue.put({"node": node_name, "status": status})
+                _append_event(session_id, {"node": node_name, "status": status})
 
         # Retrieve final state and persist report
         final = await graph_module.graph.aget_state(config)
@@ -104,11 +129,10 @@ async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
             session_service.update_session_status(db, session_id, "failed")
         finally:
             db.close()
-        if queue:
-            await queue.put({"node": "error", "status": str(exc)})
+        _append_event(session_id, {"node": "error", "status": str(exc)})
     finally:
-        if queue:
-            await queue.put(None)  # sentinel — stream is done
+        running_sessions.discard(session_id)
+        stream_signals.pop(session_id, None)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -156,12 +180,16 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
     }
 
 
+@app.get("/sessions/{session_id}/progress")
+async def get_session_progress(session_id: str, db: Session = Depends(get_db)):
+    session = _session_or_404(session_id, db)
+    events = await _workflow_events(session_id)
+    return {"session_id": session_id, "status": session.status, "events": events}
+
+
 @app.post("/sessions/{session_id}/run")
 async def run_session(session_id: str, db: Session = Depends(get_db)):
     session = _session_or_404(session_id, db)
-
-    queue: asyncio.Queue = asyncio.Queue()
-    active_streams[session_id] = queue
 
     initial_state = {
         "session_id": session_id,
@@ -189,25 +217,53 @@ async def run_session(session_id: str, db: Session = Depends(get_db)):
     return {"session_id": session_id, "status": "running"}
 
 
-@app.get("/sessions/{session_id}/stream")
-async def stream_session(session_id: str):
-    async def event_generator() -> AsyncGenerator[str, None]:
-        queue = active_streams.get(session_id)
-        if not queue:
-            yield f"data: {json.dumps({'node': 'error', 'status': 'No active run found'})}\n\n"
-            return
+def _session_status(session_id: str) -> str | None:
+    db = SessionLocal()
+    try:
+        session = session_service.get_session(db, session_id)
+        return session.status if session else None
+    finally:
+        db.close()
 
-        try:
-            while True:
-                item = await asyncio.wait_for(queue.get(), timeout=120)
-                if item is None:
-                    yield f"data: {json.dumps({'node': 'done', 'status': 'Workflow complete'})}\n\n"
-                    break
+
+@app.get("/sessions/{session_id}/stream")
+async def stream_session(session_id: str, after: int = 0, db: Session = Depends(get_db)):
+    _session_or_404(session_id, db)
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        cursor = max(0, after)
+
+        while True:
+            events = await _workflow_events(session_id)
+            while cursor < len(events):
+                item = events[cursor]
+                cursor += 1
+                if item.get("node") == "error":
+                    yield f"data: {json.dumps(item)}\n\n"
+                    return
                 yield f"data: {json.dumps(item)}\n\n"
-        except asyncio.TimeoutError:
-            yield f"data: {json.dumps({'node': 'timeout', 'status': 'Stream timed out'})}\n\n"
-        finally:
-            active_streams.pop(session_id, None)
+
+            status = _session_status(session_id)
+            if status == "completed":
+                yield f"data: {json.dumps({'node': 'done', 'status': 'Workflow complete'})}\n\n"
+                return
+            if status == "failed":
+                yield f"data: {json.dumps({'node': 'error', 'status': 'Workflow failed'})}\n\n"
+                return
+
+            if session_id not in running_sessions:
+                return
+
+            signal = stream_signals.get(session_id)
+            if signal:
+                signal.clear()
+                try:
+                    await asyncio.wait_for(signal.wait(), timeout=120)
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps({'node': 'timeout', 'status': 'Stream timed out'})}\n\n"
+                    return
+            else:
+                await asyncio.sleep(0.5)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
