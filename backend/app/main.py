@@ -132,7 +132,13 @@ async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
         _append_event(session_id, {"node": "error", "status": str(exc)})
     finally:
         running_sessions.discard(session_id)
-        stream_signals.pop(session_id, None)
+        # Wake any parked SSE waiter so it re-checks the now-final DB status and
+        # emits the terminal `done`/`error` event immediately. The last node event
+        # (e.g. generate_report) fires before the report is persisted, so without
+        # this nudge the stream would block on the signal until it times out.
+        signal = stream_signals.pop(session_id, None)
+        if signal:
+            signal.set()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
