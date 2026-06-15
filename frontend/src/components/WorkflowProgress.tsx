@@ -131,18 +131,17 @@ export default function WorkflowProgress({
     try {
       const session = await api.getSession(sessionId)
       const status = session.status as SessionStatus
-      if (status === 'completed') finish(true)
+      if (status === 'completed' || session.report) finish(true)
       else if (status === 'failed') finish(false)
-      // running/pending: keep waiting — SSE may reconnect or poll will retry
     } catch {
       // Transient network error — don't mark failed yet.
     }
   }, [sessionId, finish])
 
-  const startPolling = useCallback(() => {
+  const startPolling = useCallback((intervalMs = 5000) => {
     if (pollRef.current) return
     void resolveViaApi()
-    pollRef.current = setInterval(() => { void resolveViaApi() }, 5000)
+    pollRef.current = setInterval(() => { void resolveViaApi() }, intervalMs)
   }, [resolveViaApi])
 
   useEffect(() => {
@@ -160,6 +159,10 @@ export default function WorkflowProgress({
         }
         return [...prev, event]
       })
+      if (event.node === 'generate_report') {
+        void resolveViaApi()
+        startPolling(500)
+      }
     }
 
     const connectStream = (after: number) => {
@@ -201,6 +204,13 @@ export default function WorkflowProgress({
         if (progress.events.length > 0) {
           setEvents(progress.events)
           after = progress.events.length
+          if (
+            progress.status === 'running' &&
+            progress.events.some(e => e.node === 'generate_report')
+          ) {
+            void resolveViaApi()
+            startPolling(500)
+          }
         }
 
         const status = progress.status as SessionStatus

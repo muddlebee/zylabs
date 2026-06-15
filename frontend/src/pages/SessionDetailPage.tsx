@@ -54,8 +54,23 @@ export default function SessionDetailPage() {
   useEffect(() => { fetchSession() }, [fetchSession])
 
   const handleWorkflowComplete = useCallback(() => {
-    setTimeout(fetchSession, 800)
-  }, [fetchSession])
+    if (!id) return
+
+    const pollForReport = async (attempt = 0) => {
+      try {
+        const detail = await api.getSession(id)
+        if (detail.report || detail.status === 'completed' || detail.status === 'failed' || attempt >= 30) {
+          setSession(detail)
+          return
+        }
+      } catch {
+        if (attempt >= 30) return
+      }
+      setTimeout(() => { void pollForReport(attempt + 1) }, 500)
+    }
+
+    void pollForReport()
+  }, [id])
 
   if (loading) return <DetailSkeleton />
 

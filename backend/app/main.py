@@ -252,6 +252,16 @@ async def stream_session(session_id: str, after: int = 0, db: Session = Depends(
                 return
 
             if session_id not in running_sessions:
+                # Graph finished but DB status may lag — poll briefly before closing.
+                for _ in range(15):
+                    await asyncio.sleep(0.2)
+                    status = _session_status(session_id)
+                    if status == "completed":
+                        yield f"data: {json.dumps({'node': 'done', 'status': 'Workflow complete'})}\n\n"
+                        return
+                    if status == "failed":
+                        yield f"data: {json.dumps({'node': 'error', 'status': 'Workflow failed'})}\n\n"
+                        return
                 return
 
             signal = stream_signals.get(session_id)
