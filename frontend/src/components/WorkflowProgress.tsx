@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StreamEvent } from '../types'
 import { api } from '../api'
 
@@ -10,15 +10,88 @@ const NODES = [
   { key: 'quality_gate',      label: 'Quality Check',     desc: 'Scoring coverage & confidence' },
   { key: 'strategize',        label: 'Strategy',          desc: 'Building sales angles' },
   { key: 'generate_report',   label: 'Report',            desc: 'Assembling final briefing' },
-]
+] as const
+
+const PARALLEL_AFTER_PLAN = new Set(['enrich_financials', 'research'])
+const SEQUENTIAL_AFTER_PARALLEL = ['synthesize', 'quality_gate', 'strategize', 'generate_report']
 
 type NodeState = 'pending' | 'active' | 'done' | 'skipped'
+type SessionStatus = 'pending' | 'running' | 'completed' | 'failed'
 
 interface Props {
   sessionId: string
   initialStatus: string
   financialsEnriched?: boolean
   onComplete: () => void
+}
+
+/** Nodes implied done by graph topology when a later node event arrives. */
+function inferCompleted(events: StreamEvent[]): Set<string> {
+  const explicit = new Set(events.map(e => e.node))
+  const done = new Set(explicit)
+  const seen = (node: string) => explicit.has(node)
+
+  if (['enrich_financials', 'research', 'synthesize', 'quality_gate', 'strategize', 'generate_report'].some(seen)) {
+    done.add('plan')
+  }
+  if (['synthesize', 'quality_gate', 'strategize', 'generate_report'].some(seen)) {
+    done.add('enrich_financials')
+    done.add('research')
+  }
+  if (['quality_gate', 'strategize', 'generate_report'].some(seen)) {
+    done.add('synthesize')
+  }
+  if (['strategize', 'generate_report'].some(seen)) {
+    done.add('quality_gate')
+  }
+  if (seen('generate_report')) {
+    done.add('strategize')
+  }
+
+  return done
+}
+
+function getNodeState(
+  key: string,
+  events: StreamEvent[],
+  done: boolean,
+  failed: boolean,
+  financialsEnriched?: boolean,
+): NodeState {
+  const completed = inferCompleted(events)
+  if (completed.has(key)) return 'done'
+
+  // Revisiting a finished session — SSE history is not persisted.
+  if (done && !failed && events.length === 0) {
+    if (key === 'enrich_financials' && financialsEnriched === false) {
+      return 'skipped'
+    }
+    return 'done'
+  }
+
+  if (done) return 'pending'
+
+  if (!completed.has('plan')) {
+    return key === 'plan' ? 'active' : 'pending'
+  }
+
+  // enrich_financials and research run in parallel — never mark one skipped
+  // just because the other finished first.
+  if (PARALLEL_AFTER_PLAN.has(key)) {
+    if (!completed.has('synthesize')) {
+      return 'active'
+    }
+    return 'pending'
+  }
+
+  if (key === 'synthesize') {
+    const parallelDone =
+      completed.has('enrich_financials') && completed.has('research')
+    return parallelDone ? 'active' : 'pending'
+  }
+
+  const firstIncomplete = SEQUENTIAL_AFTER_PARALLEL.find(n => !completed.has(n))
+  return key === firstIncomplete ? 'active' : 'pending'
 }
 
 export default function WorkflowProgress({
@@ -32,21 +105,52 @@ export default function WorkflowProgress({
   const [failed, setFailed] = useState(initialStatus === 'failed')
   const [revisions, setRevisions] = useState(0)
   const esRef = useRef<EventSource | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const completedGracefullyRef = useRef(initialStatus === 'completed')
+  const finishingRef = useRef(false)
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }, [])
+
+  const finish = useCallback((ok: boolean) => {
+    if (finishingRef.current) return
+    finishingRef.current = true
+    completedGracefullyRef.current = ok
+    setDone(true)
+    setFailed(!ok)
+    esRef.current?.close()
+    stopPolling()
+    onComplete()
+  }, [onComplete, stopPolling])
+
+  const resolveViaApi = useCallback(async () => {
+    try {
+      const session = await api.getSession(sessionId)
+      const status = session.status as SessionStatus
+      if (status === 'completed') finish(true)
+      else if (status === 'failed') finish(false)
+      // running/pending: keep waiting — SSE may reconnect or poll will retry
+    } catch {
+      // Transient network error — don't mark failed yet.
+    }
+  }, [sessionId, finish])
+
+  const startPolling = useCallback(() => {
+    if (pollRef.current) return
+    void resolveViaApi()
+    pollRef.current = setInterval(() => { void resolveViaApi() }, 5000)
+  }, [resolveViaApi])
 
   useEffect(() => {
     if (done) return
 
+    finishingRef.current = false
     const es = new EventSource(api.streamUrl(sessionId))
     esRef.current = es
-
-    const finish = (ok: boolean) => {
-      completedGracefullyRef.current = ok
-      setDone(true)
-      setFailed(!ok)
-      es.close()
-      onComplete()
-    }
 
     es.onmessage = (ev) => {
       try {
@@ -56,12 +160,13 @@ export default function WorkflowProgress({
           return
         }
         if (data.node === 'error' || data.node === 'timeout') {
-          finish(false)
+          // Stream ended without history (refresh, proxy drop, late join) — check DB status.
+          void resolveViaApi()
+          if (data.node === 'timeout') startPolling()
           return
         }
         const event: StreamEvent = data
         setEvents(prev => {
-          // detect re-research loop
           const lastResearch = prev.findLastIndex(e => e.node === 'research')
           const lastQuality  = prev.findLastIndex(e => e.node === 'quality_gate')
           if (event.node === 'research' && lastQuality > lastResearch) {
@@ -76,46 +181,16 @@ export default function WorkflowProgress({
 
     es.onerror = () => {
       es.close()
-      // Browsers fire onerror when the SSE connection closes — not always a failure.
-      if (completedGracefullyRef.current) return
-      finish(false)
+      if (completedGracefullyRef.current || finishingRef.current) return
+      void resolveViaApi()
+      startPolling()
     }
 
-    return () => { es.close() }
-  }, [sessionId, done, onComplete])
-
-  function getNodeState(key: string): NodeState {
-    const completed = events.filter(e => e.node === key)
-    if (completed.length > 0) return 'done'
-
-    const thisIdx = NODES.findIndex(n => n.key === key)
-
-    // SSE events aren't persisted — revisiting a finished session has no event history.
-    if (done && !failed && events.length === 0) {
-      if (key === 'enrich_financials' && financialsEnriched === false) {
-        return 'skipped'
-      }
-      return 'done'
+    return () => {
+      es.close()
+      stopPolling()
     }
-
-    if (done) {
-      const hasLaterDone = events.some(e => NODES.findIndex(n => n.key === e.node) > thisIdx)
-      if (hasLaterDone) return 'skipped'
-      return 'pending'
-    }
-
-    const lastEvent = events[events.length - 1]
-    if (!lastEvent) {
-      return key === 'plan' ? 'active' : 'pending'
-    }
-
-    const lastIdx = NODES.findIndex(n => n.key === lastEvent.node)
-
-    // Check if this node was skipped (e.g. enrich_financials on older runs)
-    if (thisIdx > 0 && thisIdx < lastIdx) return 'skipped'
-    if (thisIdx === lastIdx + 1) return 'active'
-    return 'pending'
-  }
+  }, [sessionId, done, finish, resolveViaApi, startPolling, stopPolling])
 
   const lastStatus = events[events.length - 1]?.status ?? ''
 
@@ -134,11 +209,10 @@ export default function WorkflowProgress({
 
       <div className="relative">
         {NODES.map((node, idx) => {
-          const state = getNodeState(node.key)
+          const state = getNodeState(node.key, events, done, failed, financialsEnriched)
           const isLast = idx === NODES.length - 1
           return (
             <div key={node.key} className="flex gap-3">
-              {/* Connector column */}
               <div className="flex flex-col items-center">
                 <NodeDot state={state} />
                 {!isLast && (
@@ -150,7 +224,6 @@ export default function WorkflowProgress({
                 )}
               </div>
 
-              {/* Content */}
               <div className={`pb-4 flex-1 ${isLast ? 'pb-0' : ''}`}>
                 <div className="flex items-baseline gap-2">
                   <span className={`text-sm font-medium leading-none transition-colors ${
@@ -176,7 +249,6 @@ export default function WorkflowProgress({
         })}
       </div>
 
-      {/* Status line */}
       {lastStatus && !done && (
         <p className="text-xs text-ink-3 pt-3 border-t border-c-border-sub">
           {lastStatus}
