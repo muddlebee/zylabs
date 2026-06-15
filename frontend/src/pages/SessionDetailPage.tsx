@@ -10,10 +10,10 @@ import { isStoppedAtPlanning, planningStopReason } from '../errorDisplay'
 
 function DetailSkeleton() {
   return (
-    <div className="max-w-6xl mx-auto px-6 py-10 animate-pulse">
-      <div className="h-4 skeleton w-32 mb-8" />
-      <div className="flex gap-8">
-        <aside className="w-64 shrink-0 space-y-4">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-10 animate-pulse">
+      <div className="h-4 skeleton w-32 mb-6 sm:mb-8" />
+      <div className="flex flex-col lg:flex-row gap-8">
+        <aside className="w-full lg:w-64 lg:shrink-0 space-y-4">
           <div className="h-3 skeleton w-20" />
           {[...Array(7)].map((_, i) => (
             <div key={i} className="flex items-center gap-3">
@@ -78,7 +78,7 @@ export default function SessionDetailPage() {
 
   if (error || !session) {
     return (
-      <div className="max-w-6xl mx-auto px-6 py-20 text-center">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20 text-center">
         <p className="text-c-red text-sm mb-4">{error || 'Session not found'}</p>
         <Link to="/" className="text-sm text-ink-3 underline">← Back to sessions</Link>
       </div>
@@ -96,18 +96,18 @@ export default function SessionDetailPage() {
   const planningReason = planningStopReason(reportErrors) ?? 'Web research is unavailable'
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-10">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
       {/* Breadcrumb */}
-      <Link to="/" className="inline-flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink transition-colors no-underline mb-8">
+      <Link to="/" className="inline-flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink transition-colors no-underline mb-6 sm:mb-8">
         <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
         </svg>
         All Sessions
       </Link>
 
-      <div className="flex gap-10 items-start">
+      <div className="flex flex-col lg:flex-row gap-8 lg:gap-10 items-start">
         {/* Sidebar */}
-        <aside className="w-64 shrink-0 sticky top-20">
+        <aside className="w-full lg:w-64 lg:shrink-0 lg:sticky lg:top-20">
           <div className="space-y-6">
             {/* Session meta */}
             <div className="pb-5 border-b border-c-border-sub">
@@ -119,7 +119,7 @@ export default function SessionDetailPage() {
                   href={session.company_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs text-accent hover:underline truncate block"
+                  className="text-xs text-accent hover:underline break-all block"
                 >
                   {session.company_url.replace(/^https?:\/\//, '')}
                 </a>
@@ -149,7 +149,7 @@ export default function SessionDetailPage() {
         {/* Main content */}
         <main className="flex-1 min-w-0">
           {isRunning && !session.report && (
-            <div className="py-24 text-center">
+            <div className="py-16 sm:py-24 text-center">
               <div className="inline-flex items-center gap-3 text-ink-3">
                 <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
@@ -164,7 +164,7 @@ export default function SessionDetailPage() {
           )}
 
           {isFailed && !session.report && (
-            <div className="py-20 text-center">
+            <div className="py-16 sm:py-20 text-center">
               <div className="inline-flex items-center gap-2 text-c-red text-sm mb-3">
                 <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />

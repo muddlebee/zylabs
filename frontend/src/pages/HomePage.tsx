@@ -19,20 +19,20 @@ export default function HomePage() {
   }, [])
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
       {/* Hero */}
-      <div className="mb-12">
-        <h1 className="font-serif text-4xl md:text-5xl text-ink leading-tight mb-4">
+      <div className="mb-10 sm:mb-12">
+        <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-ink leading-tight mb-4">
           Sales Intelligence
         </h1>
-        <p className="text-ink-3 text-base max-w-lg">
+        <p className="text-ink-3 text-sm sm:text-base max-w-lg">
           Enter a company and your meeting objective. Our AI pipeline researches,
           analyses, and delivers a structured briefing — ready in minutes.
         </p>
       </div>
 
       {/* Create form */}
-      <div className="bg-surface border border-c-border rounded-xl p-6 mb-12">
+      <div className="bg-surface border border-c-border rounded-xl p-4 sm:p-6 mb-10 sm:mb-12">
         <h2 className="text-sm font-semibold text-ink-2 mb-5 flex items-center gap-2">
           <span className="w-5 h-5 rounded-full bg-accent-light flex items-center justify-center text-accent text-xs font-bold">+</span>
           New Research Session

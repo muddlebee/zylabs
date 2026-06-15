@@ -31,7 +31,7 @@ export default function ReportView({ report }: Props) {
   const hasRetrievalFailure = errors.length > 0 || report.sources.length === 0
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8 sm:space-y-10">
       {hasRetrievalFailure && (
         <RetrievalWarning
           errors={errors}
@@ -42,7 +42,7 @@ export default function ReportView({ report }: Props) {
 
       {/* Report header */}
       <div className="pb-6 border-b border-c-border">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
           <div>
             <h1 className="font-serif text-3xl text-ink leading-tight">
               {report.company_name}
@@ -54,7 +54,7 @@ export default function ReportView({ report }: Props) {
               )}
             </p>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center justify-between sm:justify-start gap-3 shrink-0 w-full sm:w-auto">
             <QualityBadge score={report.meta.quality_score} />
             <span className="text-xs text-ink-3">
               {report.sources.length} sources
@@ -163,7 +163,7 @@ function RetrievalWarning({
         </div>
       </div>
       {errors.length > 0 && (
-        <ul className="space-y-1.5 pl-8">
+        <ul className="space-y-1.5 pl-5 sm:pl-8">
           {errors.map(err => (
             <li key={`${err.node}:${err.message}`} className="text-xs text-ink-2 leading-snug">
               <span className="font-medium text-ink">{nodeLabel(err.node)}</span>
@@ -193,7 +193,7 @@ function FinancialSnapshot({
   if (!entries.length) return null
 
   return (
-    <div className="border border-c-border rounded-xl p-5 bg-surface">
+    <div className="border border-c-border rounded-xl p-4 sm:p-5 bg-surface">
       <SectionHeader
         title="Financial Snapshot"
         trailing={
@@ -202,14 +202,14 @@ function FinancialSnapshot({
           </span>
         }
       />
-      <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3">
+      <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3">
         {entries.map(([key, val]) => {
           const label = FINANCIAL_LABELS[key] ?? key.replace(/_/g, ' ')
           const display = Array.isArray(val) ? val.join(', ') : String(val)
           return (
             <div key={key} className="min-w-0">
               <dt className="text-xs text-ink-3 uppercase tracking-wide">{label}</dt>
-              <dd className="text-sm text-ink font-medium mt-0.5 truncate" title={display}>{display}</dd>
+              <dd className="text-sm text-ink font-medium mt-0.5 break-words" title={display}>{display}</dd>
             </div>
           )
         })}
@@ -228,7 +228,7 @@ function SectionHeader({
   trailing?: ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 mb-4 pb-3 border-b border-c-border">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between items-start gap-2 sm:gap-4 mb-4 pb-3 border-b border-c-border">
       <div className="flex items-baseline gap-2.5 min-w-0">
         {index != null && (
           <span className="text-[11px] font-semibold text-accent tabular-nums tracking-widest shrink-0 select-none">
@@ -315,7 +315,7 @@ function SourceCard({ source }: { source: Source }) {
           {tier.label}
         </span>
       </div>
-      <p className="text-xs text-ink-3 mt-1 truncate">{hostname}</p>
+      <p className="text-xs text-ink-3 mt-1 break-all">{hostname}</p>
     </a>
   )
 }

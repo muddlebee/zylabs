@@ -5,10 +5,10 @@ import SessionDetailPage from './pages/SessionDetailPage'
 function Navbar() {
   return (
     <header className="sticky top-0 z-50 bg-surface border-b border-c-border-sub">
-      <div className="max-w-6xl mx-auto px-6 h-14 flex items-center">
-        <Link to="/" className="flex items-center gap-2.5 no-underline">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 min-h-14 py-3 flex items-center">
+        <Link to="/" className="flex items-center gap-2 sm:gap-2.5 no-underline min-w-0">
           <span className="font-serif italic text-xl text-ink leading-none">Zylabs</span>
-          <span className="text-xs font-medium text-ink-3 tracking-widest uppercase border-l border-c-border pl-2.5">
+          <span className="text-[10px] sm:text-xs font-medium text-ink-3 tracking-[0.2em] uppercase border-l border-c-border pl-2 sm:pl-2.5 leading-tight">
             Research Copilot
           </span>
         </Link>
