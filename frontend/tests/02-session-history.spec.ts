@@ -39,7 +39,6 @@ test.describe('Session history', () => {
   })
 
   test('clicking a session navigates to its detail page', async ({ page }) => {
-    const { sessionId } = readSession()
     await page.goto('/')
     await page.waitForSelector('ul li a', { timeout: 10_000 })
 
