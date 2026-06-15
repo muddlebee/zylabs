@@ -295,6 +295,10 @@ MODEL_NAME=deepseek-chat  # or "gpt-4.1-mini"
 The `get_llm()` factory in `app/llm.py` is `@lru_cache`-d so the client is instantiated
 once and reused across all nodes and chat turns.
 
+Prompt text is **per-node**, not a single shared agent system prompt — each LLM step defines
+its own instructions in code (mostly `SYSTEM_PROMPT` constants; financial extraction uses a
+user-only template). See [`docs/prompts.md`](prompts.md) for the full inventory and prompt text.
+
 ---
 
 ## Failure Handling
