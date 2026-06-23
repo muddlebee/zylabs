@@ -5,8 +5,11 @@
  */
 import fs from 'fs'
 import path from 'path'
+import { fileURLToPath } from 'url'
 
 const API = 'http://localhost:8001'
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 export const SESSION_FILE = path.join(__dirname, '.session.json')
 
 async function poll(sessionId: string, maxMs = 140_000): Promise<void> {
