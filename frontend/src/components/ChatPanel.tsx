@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent } from 
 import ReactMarkdown from 'react-markdown'
 import { api } from '../api'
 import type { ChatMessage } from '../types'
+import { normalizeModelText } from '../utils/text'
 
 interface Props { sessionId: string }
 
@@ -114,7 +115,7 @@ export default function ChatPanel({ sessionId }: Props) {
                       h3:     ({ children }) => <h3 className="font-semibold text-ink mt-2 mb-1">{children}</h3>,
                     }}
                   >
-                    {msg.content}
+                    {normalizeModelText(msg.content)}
                   </ReactMarkdown>
                 </div>
               )}
