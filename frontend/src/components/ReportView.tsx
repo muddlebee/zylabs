@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
+import ReactMarkdown from 'react-markdown'
 import type { Report, Source, WorkflowError } from '../types'
 import { dedupeErrorsForDisplay, nodeLabel } from '../errorDisplay'
+import { normalizeModelText } from '../utils/text'
 
 const SECTION_META: Record<string, { label: string; order: number }> = {
   overview:             { label: 'Company Overview',    order: 1 },
@@ -258,7 +260,7 @@ function ReportSection({
   const citedSources = (section.source_ids ?? [])
     .map(id => sourceMap[id])
     .filter(Boolean)
-  const normalizedContent = normalizeSectionContent(section.content)
+  const normalizedContent = normalizeModelText(section.content)
 
   return (
     <section>
@@ -269,9 +271,21 @@ function ReportSection({
       />
 
       <div className="report-prose">
-        {normalizedContent.split('\n').filter(Boolean).map((para, i) => (
-          <p key={i}>{para}</p>
-        ))}
+        <ReactMarkdown
+          components={{
+            p: ({ children }) => <p>{children}</p>,
+            strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
+            em: ({ children }) => <em className="italic">{children}</em>,
+            ul: ({ children }) => <ul>{children}</ul>,
+            ol: ({ children }) => <ol>{children}</ol>,
+            li: ({ children }) => <li>{children}</li>,
+            code: ({ children }) => (
+              <code className="bg-black/10 rounded px-1 py-0.5 text-xs font-mono">{children}</code>
+            ),
+          }}
+        >
+          {normalizedContent}
+        </ReactMarkdown>
       </div>
 
       {citedSources.length > 0 && (
@@ -294,15 +308,6 @@ function ReportSection({
       )}
     </section>
   )
-}
-
-function normalizeSectionContent(content: string): string {
-  return content
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\n')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
 }
 
 function SourceCard({ source }: { source: Source }) {
