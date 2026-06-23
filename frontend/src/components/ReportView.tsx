@@ -258,6 +258,7 @@ function ReportSection({
   const citedSources = (section.source_ids ?? [])
     .map(id => sourceMap[id])
     .filter(Boolean)
+  const normalizedContent = normalizeSectionContent(section.content)
 
   return (
     <section>
@@ -268,7 +269,7 @@ function ReportSection({
       />
 
       <div className="report-prose">
-        {section.content.split('\n').filter(Boolean).map((para, i) => (
+        {normalizedContent.split('\n').filter(Boolean).map((para, i) => (
           <p key={i}>{para}</p>
         ))}
       </div>
@@ -293,6 +294,15 @@ function ReportSection({
       )}
     </section>
   )
+}
+
+function normalizeSectionContent(content: string): string {
+  return content
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
 }
 
 function SourceCard({ source }: { source: Source }) {
