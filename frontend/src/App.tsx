@@ -1,6 +1,8 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Link } from 'react-router-dom'
 import HomePage from './pages/HomePage'
-import SessionDetailPage from './pages/SessionDetailPage'
+
+const SessionDetailPage = lazy(() => import('./pages/SessionDetailPage'))
 
 function Navbar() {
   return (
@@ -17,6 +19,15 @@ function Navbar() {
   )
 }
 
+function PageFallback() {
+  return (
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 animate-pulse">
+      <div className="h-4 skeleton w-32 mb-8" />
+      <div className="h-8 skeleton w-64" />
+    </div>
+  )
+}
+
 export default function App() {
   return (
     <div className="flex flex-col min-h-screen bg-bg">
@@ -24,7 +35,14 @@ export default function App() {
       <main className="flex-1">
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/sessions/:id" element={<SessionDetailPage />} />
+          <Route
+            path="/sessions/:id"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <SessionDetailPage />
+              </Suspense>
+            }
+          />
         </Routes>
       </main>
     </div>

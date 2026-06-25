@@ -6,6 +6,7 @@ import WorkflowProgress from '../components/WorkflowProgress'
 import ReportView from '../components/ReportView'
 import StoppedAtPlanningView from '../components/StoppedAtPlanningView'
 import ChatPanel from '../components/ChatPanel'
+import StatusBadge from '../components/StatusBadge'
 import { isStoppedAtPlanning, planningStopReason } from '../errorDisplay'
 
 function DetailSkeleton() {
@@ -55,24 +56,9 @@ export default function SessionDetailPage() {
 
   useEffect(() => { fetchSession() }, [fetchSession])
 
-  const handleWorkflowComplete = useCallback(() => {
-    if (!id) return
-
-    const pollForReport = async (attempt = 0) => {
-      try {
-        const detail = await api.getSession(id)
-        if (detail.report || detail.status === 'completed' || detail.status === 'failed' || attempt >= 30) {
-          setSession(detail)
-          return
-        }
-      } catch {
-        if (attempt >= 30) return
-      }
-      setTimeout(() => { void pollForReport(attempt + 1) }, 500)
-    }
-
-    void pollForReport()
-  }, [id])
+  const handleWorkflowComplete = useCallback((detail: SessionDetail) => {
+    setSession(detail)
+  }, [])
 
   if (loading) return <DetailSkeleton />
 
@@ -96,7 +82,6 @@ export default function SessionDetailPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
-      {/* Breadcrumb */}
       <Link to="/" className="inline-flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink transition-colors no-underline mb-6 sm:mb-8">
         <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
@@ -105,10 +90,8 @@ export default function SessionDetailPage() {
       </Link>
 
       <div className="flex flex-col lg:flex-row gap-8 lg:gap-10 items-start">
-        {/* Sidebar */}
         <aside className="w-full lg:w-64 lg:shrink-0 lg:sticky lg:top-20">
           <div className="space-y-6">
-            {/* Session meta */}
             <div className="pb-5 border-b border-c-border-sub">
               <h2 className="font-serif text-xl text-ink leading-tight mb-1">
                 {session.company_name}
@@ -128,10 +111,12 @@ export default function SessionDetailPage() {
               </p>
             </div>
 
-            {/* Status */}
-            <StatusBadge status={session.status} stoppedAtPlanning={stoppedAtPlanning} />
+            <StatusBadge
+              status={session.status}
+              variant="pill"
+              stoppedAtPlanning={stoppedAtPlanning}
+            />
 
-            {/* Workflow stepper */}
             {(isRunning || isCompleted || isFailed) && (
               <WorkflowProgress
                 sessionId={session.session_id}
@@ -145,7 +130,6 @@ export default function SessionDetailPage() {
           </div>
         </aside>
 
-        {/* Main content */}
         <main className="flex-1 min-w-0">
           {isRunning && !session.report && (
             <div className="py-16 sm:py-24 text-center">
@@ -185,7 +169,6 @@ export default function SessionDetailPage() {
             <div className="space-y-12">
               <ReportView report={session.report} />
 
-              {/* Chat */}
               <div className="pt-8 border-t border-c-border">
                 <h2 className="font-serif text-xl text-ink mb-2">Follow-up Chat</h2>
                 <p className="text-sm text-ink-3 mb-6">
@@ -198,24 +181,5 @@ export default function SessionDetailPage() {
         </main>
       </div>
     </div>
-  )
-}
-
-function StatusBadge({ status, stoppedAtPlanning }: { status: string; stoppedAtPlanning?: boolean }) {
-  const configs: Record<string, { label: string; cls: string }> = {
-    pending:   { label: 'Pending',   cls: 'text-ink-3 bg-surface border-c-border' },
-    running:   { label: 'Running',   cls: 'text-accent bg-accent-light border-accent/30' },
-    completed: { label: 'Complete',  cls: 'text-c-green bg-c-green-lt border-c-green/30' },
-    failed:    { label: 'Failed',    cls: 'text-c-red bg-c-red-lt border-c-red/30' },
-  }
-  const effectiveStatus = stoppedAtPlanning ? 'failed' : status
-  const cfg = configs[effectiveStatus] ?? configs.pending
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${cfg.cls}`}>
-      {status === 'running' && !stoppedAtPlanning && (
-        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-      )}
-      {cfg.label}
-    </span>
   )
 }
