@@ -22,7 +22,10 @@ export function useWorkflowStream({ sessionId, initialStatus, onComplete }: Opti
   const completedGracefullyRef = useRef(initialStatus === 'completed')
   const finishingRef = useRef(false)
   const onCompleteRef = useRef(onComplete)
-  onCompleteRef.current = onComplete
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete
+  }, [onComplete])
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
