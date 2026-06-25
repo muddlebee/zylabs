@@ -5,9 +5,13 @@
  * Covers: Research Session Creation, Loading States, Error States
  */
 import { test, expect } from '@playwright/test'
+import { mockSessionRun } from './helpers'
 
 test.describe('Session creation form', () => {
   test.beforeEach(async ({ page }) => {
+    if (process.env.CI) {
+      await mockSessionRun(page)
+    }
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /sales intelligence/i })).toBeVisible()
   })

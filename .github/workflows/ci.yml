@@ -83,8 +83,6 @@ jobs:
         working-directory: backend
         run: |
           cat > .env <<EOF
-          FIRECRAWL_API_KEY=${{ secrets.FIRECRAWL_API_KEY }}
-          DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
           MODEL_NAME=deepseek-chat
           MODEL_PROVIDER=deepseek
