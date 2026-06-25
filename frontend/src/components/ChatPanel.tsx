@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react'
-import ReactMarkdown from 'react-markdown'
 import { api } from '../api'
 import type { ChatMessage } from '../types'
-import { normalizeModelText } from '../utils/text'
+import Markdown from './Markdown'
 
 interface Props { sessionId: string }
 
@@ -17,7 +16,7 @@ export default function ChatPanel({ sessionId }: Props) {
   useEffect(() => {
     api.getChatHistory(sessionId)
       .then(setMessages)
-      .catch(() => {}) // graceful — history is optional
+      .catch(() => {})
       .finally(() => setFetched(true))
   }, [sessionId])
 
@@ -40,8 +39,8 @@ export default function ChatPanel({ sessionId }: Props) {
       setMessages(prev => [...prev, reply])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send')
-      setMessages(prev => prev.slice(0, -1)) // remove optimistic user msg
-      setInput(msg) // restore input
+      setMessages(prev => prev.slice(0, -1))
+      setInput(msg)
     } finally {
       setLoading(false)
     }
@@ -70,7 +69,6 @@ export default function ChatPanel({ sessionId }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Intro */}
       {messages.length === 0 && (
         <div className="py-6 text-center">
           <p className="text-sm text-ink-3">
@@ -90,7 +88,6 @@ export default function ChatPanel({ sessionId }: Props) {
         </div>
       )}
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-3 py-2 max-h-80 sm:max-h-96">
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -103,20 +100,7 @@ export default function ChatPanel({ sessionId }: Props) {
                 msg.content
               ) : (
                 <div className="prose-chat">
-                  <ReactMarkdown
-                    components={{
-                      p:      ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
-                      em:     ({ children }) => <em className="italic">{children}</em>,
-                      ul:     ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-                      ol:     ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-                      li:     ({ children }) => <li className="leading-snug">{children}</li>,
-                      code:   ({ children }) => <code className="bg-black/10 rounded px-1 py-0.5 text-xs font-mono">{children}</code>,
-                      h3:     ({ children }) => <h3 className="font-semibold text-ink mt-2 mb-1">{children}</h3>,
-                    }}
-                  >
-                    {normalizeModelText(msg.content)}
-                  </ReactMarkdown>
+                  <Markdown content={msg.content} variant="chat" />
                 </div>
               )}
             </div>
@@ -138,7 +122,6 @@ export default function ChatPanel({ sessionId }: Props) {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2 mt-3 pt-3 border-t border-c-border-sub">
         <textarea
           rows={1}

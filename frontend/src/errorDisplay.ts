@@ -1,25 +1,31 @@
-import type { WorkflowError } from './types'
-
-const NODE_LABELS: Record<string, string> = {
-  plan: 'Planning',
-  enrich_financials: 'Financial Data',
-  research: 'Research',
-  synthesize: 'Synthesis',
-  strategize: 'Strategy',
-}
-
-const NODE_ORDER = ['plan', 'research', 'enrich_financials', 'synthesize', 'strategize']
+import type { StreamEvent, WorkflowError } from './types'
+import { WORKFLOW_NODE_LABELS, WORKFLOW_NODE_ORDER } from './constants/workflow'
 
 export function nodeLabel(node: string): string {
-  return NODE_LABELS[node] ?? node
+  return WORKFLOW_NODE_LABELS[node] ?? node
+}
+
+export function mergeWorkflowErrors(
+  events: StreamEvent[],
+  initialErrors: WorkflowError[] = [],
+): WorkflowError[] {
+  const seen = new Set<string>()
+  const merged: WorkflowError[] = []
+  for (const err of [...initialErrors, ...events.flatMap(e => e.errors ?? [])]) {
+    const key = `${err.node}:${err.message}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(err)
+  }
+  return merged
 }
 
 /** One line per unique message — avoids six identical Firecrawl errors. */
 export function dedupeErrorsForDisplay(errors: WorkflowError[]): WorkflowError[] {
   const seen = new Set<string>()
   const sorted = [...errors].sort((a, b) => {
-    const ai = NODE_ORDER.indexOf(a.node)
-    const bi = NODE_ORDER.indexOf(b.node)
+    const ai = WORKFLOW_NODE_ORDER.indexOf(a.node as typeof WORKFLOW_NODE_ORDER[number])
+    const bi = WORKFLOW_NODE_ORDER.indexOf(b.node as typeof WORKFLOW_NODE_ORDER[number])
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
   })
   const out: WorkflowError[] = []

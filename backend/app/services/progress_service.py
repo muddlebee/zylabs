@@ -24,6 +24,10 @@ def _event(node: str, status: str, errors: list | None = None) -> dict[str, Any]
     return event
 
 
+def _errors_for_node(values: dict[str, Any], node: str) -> list:
+    return [e for e in values.get("errors") or [] if e.get("node") == node]
+
+
 def events_from_checkpoint(values: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Infer completed workflow nodes from persisted graph state."""
     if not values:
@@ -32,10 +36,7 @@ def events_from_checkpoint(values: dict[str, Any] | None) -> list[dict[str, Any]
     events: list[dict[str, Any]] = []
 
     if values.get("research_plan"):
-        plan_errors = [
-            e for e in values.get("errors") or []
-            if e.get("node") == "plan"
-        ]
+        plan_errors = _errors_for_node(values, "plan")
         if values.get("retrieval_unavailable"):
             status = values.get("status", "Web research unavailable")
             events.append(_event("plan", status, plan_errors or None))
@@ -48,18 +49,12 @@ def events_from_checkpoint(values: dict[str, Any] | None) -> list[dict[str, Any]
         return events
 
     financials = values.get("financials")
-    fin_errors = [
-        e for e in values.get("errors") or []
-        if e.get("node") == "enrich_financials"
-    ]
+    fin_errors = _errors_for_node(values, "enrich_financials")
     if financials is not None or fin_errors:
         status = "Financials enriched" if financials else "Financials unavailable"
         events.append(_event("enrich_financials", status, fin_errors or None))
 
-    research_errors = [
-        e for e in values.get("errors") or []
-        if e.get("node") == "research"
-    ]
+    research_errors = _errors_for_node(values, "research")
     if values.get("sources") or values.get("scraped") or research_errors:
         plan = values.get("research_plan") or []
         questions = [t["question"] for t in plan if isinstance(t, dict) and t.get("question")]
@@ -77,7 +72,7 @@ def events_from_checkpoint(values: dict[str, Any] | None) -> list[dict[str, Any]
         findings.get(section, {}).get("content")
         for section in FACTUAL_SECTIONS
     )
-    synth_errors = [e for e in values.get("errors") or [] if e.get("node") == "synthesize"]
+    synth_errors = _errors_for_node(values, "synthesize")
     if factual_done or synth_errors:
         status = values.get("status", "Synthesis complete")
         if "Synthesis" not in status and not factual_done:
@@ -91,7 +86,7 @@ def events_from_checkpoint(values: dict[str, Any] | None) -> list[dict[str, Any]
             "status": f"Quality check complete (score={score:.2f})",
         })
 
-    strategy_errors = [e for e in values.get("errors") or [] if e.get("node") == "strategize"]
+    strategy_errors = _errors_for_node(values, "strategize")
     if any(findings.get(section, {}).get("content") for section in STRATEGY_SECTIONS) or strategy_errors:
         status = "Strategy complete"
         if strategy_errors and not any(findings.get(section, {}).get("content") for section in STRATEGY_SECTIONS):

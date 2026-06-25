@@ -6,7 +6,7 @@
  *         RAG-lite grounded responses, chat history
  */
 import { test, expect } from '@playwright/test'
-import { readSession } from './helpers'
+import { mockChatApi, readSession } from './helpers'
 
 test.describe('Follow-up chat', () => {
   let sessionId: string
@@ -16,6 +16,9 @@ test.describe('Follow-up chat', () => {
   })
 
   test.beforeEach(async ({ page }) => {
+    if (process.env.CI) {
+      await mockChatApi(page, sessionId)
+    }
     await page.goto(`/sessions/${sessionId}`)
     await expect(page.getByRole('heading', { name: 'Follow-up Chat', level: 2 })).toBeVisible({
       timeout: 10_000,
@@ -93,9 +96,9 @@ test.describe('Follow-up chat', () => {
     await input.press('Enter')
 
     // User message appears
-    await expect(page.getByText('Who are likely the key decision makers?')).toBeVisible({
-      timeout: 5_000,
-    })
+    await expect(
+      page.locator('.chat-user').filter({ hasText: 'Who are likely the key decision makers?' }).last(),
+    ).toBeVisible({ timeout: 5_000 })
 
     // Response eventually appears
     await expect(page.locator('.chat-assistant').first()).toBeVisible({ timeout: 45_000 })

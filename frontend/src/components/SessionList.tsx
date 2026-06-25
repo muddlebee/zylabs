@@ -1,12 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { Session } from '../types'
-
-const STATUS_CONFIG = {
-  pending:   { label: 'Pending',   dot: 'bg-ink-3' },
-  running:   { label: 'Running',   dot: 'bg-accent animate-pulse' },
-  completed: { label: 'Complete',  dot: 'bg-c-green' },
-  failed:    { label: 'Failed',    dot: 'bg-c-red' },
-} as const
+import StatusBadge from './StatusBadge'
 
 function formatAge(iso: string) {
   const diff = Date.now() - new Date(iso).getTime()
@@ -16,16 +10,6 @@ function formatAge(iso: string) {
   const hrs = Math.floor(mins / 60)
   if (hrs < 24)  return `${hrs}h ago`
   return `${Math.floor(hrs / 24)}d ago`
-}
-
-function StatusBadge({ status }: { status: Session['status'] }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending
-  return (
-    <span className="flex items-center gap-1.5 text-xs text-ink-3">
-      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-      {cfg.label}
-    </span>
-  )
 }
 
 interface Props {
