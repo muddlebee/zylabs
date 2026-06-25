@@ -1,4 +1,4 @@
-import type { WorkflowError } from './types'
+import type { StreamEvent, WorkflowError } from './types'
 
 const NODE_LABELS: Record<string, string> = {
   plan: 'Planning',
@@ -12,6 +12,21 @@ const NODE_ORDER = ['plan', 'research', 'enrich_financials', 'synthesize', 'stra
 
 export function nodeLabel(node: string): string {
   return NODE_LABELS[node] ?? node
+}
+
+export function mergeWorkflowErrors(
+  events: StreamEvent[],
+  initialErrors: WorkflowError[] = [],
+): WorkflowError[] {
+  const seen = new Set<string>()
+  const merged: WorkflowError[] = []
+  for (const err of [...initialErrors, ...events.flatMap(e => e.errors ?? [])]) {
+    const key = `${err.node}:${err.message}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(err)
+  }
+  return merged
 }
 
 /** One line per unique message — avoids six identical Firecrawl errors. */

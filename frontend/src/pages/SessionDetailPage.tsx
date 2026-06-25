@@ -91,8 +91,7 @@ export default function SessionDetailPage() {
   const financialFields = Object.keys(session.report?.financials ?? {}).filter(k => k !== 'source')
   const financialsEnriched = financialFields.length > 0
   const reportErrors = session.report?.meta.errors ?? []
-  const stoppedAtPlanning = session.report?.meta.stopped_at === 'plan'
-    || isStoppedAtPlanning(reportErrors, session.report?.meta.stopped_at)
+  const stoppedAtPlanning = isStoppedAtPlanning(reportErrors, session.report?.meta.stopped_at)
   const planningReason = planningStopReason(reportErrors) ?? 'Web research is unavailable'
 
   return (
@@ -139,7 +138,7 @@ export default function SessionDetailPage() {
                 initialStatus={session.status}
                 financialsEnriched={isCompleted ? financialsEnriched : undefined}
                 initialErrors={reportErrors}
-                stoppedAtPlanning={stoppedAtPlanning}
+                stoppedAt={session.report?.meta.stopped_at}
                 onComplete={handleWorkflowComplete}
               />
             )}

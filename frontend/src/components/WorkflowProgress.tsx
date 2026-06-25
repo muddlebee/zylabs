@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StreamEvent, WorkflowError } from '../types'
 import { api } from '../api'
-import { dedupeErrorsForDisplay, isStoppedAtPlanning, nodeLabel, planningStopReason } from '../errorDisplay'
+import { dedupeErrorsForDisplay, isStoppedAtPlanning, mergeWorkflowErrors, nodeLabel, planningStopReason } from '../errorDisplay'
 
 const NODES = [
   { key: 'plan',              label: 'Planning',          desc: 'Decomposing research objective' },
@@ -20,18 +20,6 @@ type NodeState = 'pending' | 'active' | 'done' | 'skipped' | 'error'
 type SessionStatus = 'pending' | 'running' | 'completed' | 'failed'
 
 const ERROR_STATUS_RE = /\bfailed\b|\bunavailable\b|\bskipped\b|\berror\b/i
-
-function mergeWorkflowErrors(events: StreamEvent[], initialErrors: WorkflowError[] = []): WorkflowError[] {
-  const seen = new Set<string>()
-  const merged: WorkflowError[] = []
-  for (const err of [...initialErrors, ...events.flatMap(e => e.errors ?? [])]) {
-    const key = `${err.node}:${err.message}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    merged.push(err)
-  }
-  return merged
-}
 
 function latestEventForNode(events: StreamEvent[], node: string): StreamEvent | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
@@ -57,33 +45,26 @@ interface Props {
   initialStatus: string
   financialsEnriched?: boolean
   initialErrors?: WorkflowError[]
-  stoppedAtPlanning?: boolean
+  stoppedAt?: 'plan' | null
   onComplete: () => void
 }
 
-/** Nodes implied done by graph topology when a later node event arrives. */
+/** Later nodes imply earlier ones completed (parallel branches share triggers). */
+const COMPLETION_TRIGGERS: Record<string, readonly string[]> = {
+  plan: ['enrich_financials', 'research', 'synthesize', 'quality_gate', 'strategize', 'generate_report'],
+  enrich_financials: ['synthesize', 'quality_gate', 'strategize', 'generate_report'],
+  research: ['synthesize', 'quality_gate', 'strategize', 'generate_report'],
+  synthesize: ['quality_gate', 'strategize', 'generate_report'],
+  quality_gate: ['strategize', 'generate_report'],
+  strategize: ['generate_report'],
+}
+
 function inferCompleted(events: StreamEvent[]): Set<string> {
-  const explicit = new Set(events.map(e => e.node))
-  const done = new Set(explicit)
-  const seen = (node: string) => explicit.has(node)
-
-  if (['enrich_financials', 'research', 'synthesize', 'quality_gate', 'strategize', 'generate_report'].some(seen)) {
-    done.add('plan')
+  const seen = new Set(events.map(e => e.node))
+  const done = new Set(seen)
+  for (const [node, triggers] of Object.entries(COMPLETION_TRIGGERS)) {
+    if (triggers.some(t => seen.has(t))) done.add(node)
   }
-  if (['synthesize', 'quality_gate', 'strategize', 'generate_report'].some(seen)) {
-    done.add('enrich_financials')
-    done.add('research')
-  }
-  if (['quality_gate', 'strategize', 'generate_report'].some(seen)) {
-    done.add('synthesize')
-  }
-  if (['strategize', 'generate_report'].some(seen)) {
-    done.add('quality_gate')
-  }
-  if (seen('generate_report')) {
-    done.add('strategize')
-  }
-
   return done
 }
 
@@ -105,7 +86,6 @@ function getNodeState(
     if (key === 'enrich_financials' && financialsEnriched === false) {
       return 'skipped'
     }
-    if (persistedErrors.some(err => err.node === key)) return 'error'
     return 'done'
   }
 
@@ -139,7 +119,7 @@ export default function WorkflowProgress({
   initialStatus,
   financialsEnriched,
   initialErrors = [],
-  stoppedAtPlanning = false,
+  stoppedAt,
   onComplete,
 }: Props) {
   const [events, setEvents] = useState<StreamEvent[]>([])
@@ -280,7 +260,7 @@ export default function WorkflowProgress({
 
   const lastStatus = events[events.length - 1]?.status ?? ''
   const workflowErrors = dedupeErrorsForDisplay(mergeWorkflowErrors(events, initialErrors))
-  const haltedAtPlanning = stoppedAtPlanning || isStoppedAtPlanning(workflowErrors)
+  const haltedAtPlanning = isStoppedAtPlanning(workflowErrors, stoppedAt)
   const stopReason = planningStopReason(workflowErrors)
 
   if (haltedAtPlanning) {

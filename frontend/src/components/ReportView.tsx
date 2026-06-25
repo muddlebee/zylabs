@@ -135,6 +135,16 @@ function sortFinancialEntries(
   })
 }
 
+function retrievalWarningHeadline(errors: WorkflowError[], sourceCount: number): string {
+  if (errors.some(e => /credit|firecrawl|quota/i.test(e.message))) {
+    return 'Firecrawl retrieval failed — this report is not grounded in web evidence'
+  }
+  if (sourceCount === 0) {
+    return 'No sources were retrieved — findings may be unreliable'
+  }
+  return 'Some retrieval steps failed — review errors before using this report'
+}
+
 function RetrievalWarning({
   errors,
   sourceCount,
@@ -144,11 +154,7 @@ function RetrievalWarning({
   sourceCount: number
   qualityScore: number
 }) {
-  const headline = errors.some(e => /credit|firecrawl|quota/i.test(e.message))
-    ? 'Firecrawl retrieval failed — this report is not grounded in web evidence'
-    : sourceCount === 0
-      ? 'No sources were retrieved — findings may be unreliable'
-      : 'Some retrieval steps failed — review errors before using this report'
+  const headline = retrievalWarningHeadline(errors, sourceCount)
 
   return (
     <div className="rounded-xl border border-c-red/40 bg-c-red-lt p-4 space-y-3">
