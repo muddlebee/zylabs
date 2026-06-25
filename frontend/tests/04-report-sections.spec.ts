@@ -27,8 +27,7 @@ test.describe('Report sections (assignment requirements)', () => {
   for (const sectionLabel of REQUIRED_SECTIONS) {
     test(`renders "${sectionLabel}" section`, async ({ page }) => {
       await expect(
-        page.getByRole('heading', { name: sectionLabel, exact: false })
-          .or(page.getByText(sectionLabel, { exact: false }))
+        page.getByRole('heading', { name: sectionLabel }),
       ).toBeVisible({ timeout: 10_000 })
     })
   }

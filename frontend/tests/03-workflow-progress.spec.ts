@@ -32,27 +32,24 @@ test.describe('Live workflow progress', () => {
 
   test('detail page shows running status initially', async ({ page }) => {
     await page.goto(`/sessions/${freshSessionId}`)
-    // Either "Running" badge or "Research in progress" message
-    await expect(
-      page.getByText(/running/i).or(page.getByText(/research in progress/i))
-    ).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Research in progress…')).toBeVisible({ timeout: 10_000 })
   })
 
   test('workflow stepper is visible with all expected nodes', async ({ page }) => {
     await page.goto(`/sessions/${freshSessionId}`)
-    await expect(page.getByText('Workflow')).toBeVisible({ timeout: 10_000 })
+    const stepper = page.locator('aside')
+    await expect(stepper.getByText('Workflow', { exact: true })).toBeVisible({ timeout: 10_000 })
 
-    // Core nodes should all appear in the stepper
     for (const node of WORKFLOW_NODES) {
-      await expect(page.getByText(node.label)).toBeVisible()
+      await expect(stepper.getByText(node.label, { exact: true })).toBeVisible()
     }
   })
 
   test('nodes progress from pending → active → done as SSE events arrive', async ({ page }) => {
     await page.goto(`/sessions/${freshSessionId}`)
 
-    // Wait for planning node to complete (first node in the graph)
-    await expect(page.getByText('Planning')).toBeVisible({ timeout: 10_000 })
+    const stepper = page.locator('aside')
+    await expect(stepper.getByText('Planning', { exact: true })).toBeVisible({ timeout: 10_000 })
 
     // Within the pipeline duration, at least one node becomes "done"
     // We detect this by the green checkmark SVG appearing in the stepper
@@ -65,13 +62,10 @@ test.describe('Live workflow progress', () => {
     test.setTimeout(150_000)
     await page.goto(`/sessions/${freshSessionId}`)
 
-    // Wait for the "Complete" status or "Research complete" label
-    await expect(
-      page.getByText(/research complete/i).or(page.getByText(/complete/i).first())
-    ).toBeVisible({ timeout: 140_000 })
+    await expect(page.getByText('Research complete', { exact: true })).toBeVisible({ timeout: 140_000 })
 
     // Report heading should appear in the main content area
-    await expect(page.getByText('Figma')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByRole('heading', { name: 'Figma' })).toBeVisible({ timeout: 10_000 })
   })
 
   test('all 7 workflow nodes show as done after completion', async ({ page }) => {
@@ -89,10 +83,10 @@ test.describe('Live workflow progress', () => {
     }
 
     await page.reload()
-    // After reload with a completed session, the stepper should show all core nodes
+    const stepper = page.locator('aside')
     for (const node of WORKFLOW_NODES) {
-      await expect(page.getByText(node.label)).toBeVisible()
+      await expect(stepper.getByText(node.label, { exact: true })).toBeVisible()
     }
-    await expect(page.getByText(/research complete/i)).toBeVisible()
+    await expect(page.getByText('Research complete', { exact: true })).toBeVisible()
   })
 })

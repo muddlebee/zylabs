@@ -3,6 +3,7 @@
  * Reuses an existing completed session to avoid re-running the pipeline on
  * every test invocation. Writes the session_id to .session.json for all specs.
  */
+import { spawnSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -24,6 +25,27 @@ async function poll(sessionId: string, maxMs = 140_000): Promise<void> {
   throw new Error(`Timed out waiting for session ${sessionId}`)
 }
 
+function seedFixtureSession(): void {
+  const backendRoot = path.resolve(__dirname, '../../backend')
+  const result = spawnSync(
+    'python3',
+    ['scripts/seed_e2e_session.py', SESSION_FILE],
+    {
+      cwd: backendRoot,
+      env: { ...process.env, ALLOW_TEST_SEED: '1' },
+      encoding: 'utf-8',
+    },
+  )
+
+  if (result.status !== 0) {
+    throw new Error(
+      `Failed to seed E2E session:\n${result.stderr || result.stdout || 'unknown error'}`,
+    )
+  }
+
+  console.log('\n[setup] Seeded completed fixture session for E2E tests')
+}
+
 export default async function globalSetup() {
   // 1. Check backend is reachable
   try {
@@ -32,6 +54,13 @@ export default async function globalSetup() {
     if (body.status !== 'ok') throw new Error('unhealthy')
   } catch {
     throw new Error(`Backend not reachable at ${API} — start uvicorn first.`)
+  }
+
+  // CI uses a deterministic fixture session (tests 02/04/05). Live pipeline
+  // tests (03, chat sends in 05) still need FIRECRAWL/LLM keys in backend/.env.
+  if (process.env.CI) {
+    seedFixtureSession()
+    return
   }
 
   // 2. Reuse existing completed session if one exists

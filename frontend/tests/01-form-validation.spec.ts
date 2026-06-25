@@ -9,12 +9,12 @@ import { test, expect } from '@playwright/test'
 test.describe('Session creation form', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: /know your prospect/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /sales intelligence/i })).toBeVisible()
   })
 
   test('hero section renders correctly', async ({ page }) => {
     await expect(page.getByText('Sales Intelligence')).toBeVisible()
-    await expect(page.getByRole('heading', { name: /know your prospect/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /sales intelligence/i })).toBeVisible()
     await expect(page.getByText(/researches, analyses, and delivers/i)).toBeVisible()
   })
 
@@ -68,6 +68,6 @@ test.describe('Session creation form', () => {
 
     // Redirects to session detail page
     await page.waitForURL(/\/sessions\/[0-9a-f-]{36}/, { timeout: 15_000 })
-    await expect(page.getByText('Linear')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Linear' })).toBeVisible()
   })
 })

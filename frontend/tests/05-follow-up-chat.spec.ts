@@ -93,9 +93,9 @@ test.describe('Follow-up chat', () => {
     await input.press('Enter')
 
     // User message appears
-    await expect(page.getByText('Who are likely the key decision makers?')).toBeVisible({
-      timeout: 5_000,
-    })
+    await expect(
+      page.locator('.chat-user').filter({ hasText: 'Who are likely the key decision makers?' }).last(),
+    ).toBeVisible({ timeout: 5_000 })
 
     // Response eventually appears
     await expect(page.locator('.chat-assistant').first()).toBeVisible({ timeout: 45_000 })
