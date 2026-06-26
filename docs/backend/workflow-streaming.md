@@ -77,6 +77,146 @@ Step 7 — strategize → generate_report:
 
 ---
 
+## How session_events grows — step by step
+
+The list starts empty when `_run_graph` initialises and grows one entry per node.
+The SSE consumer always reads forward from its cursor — it never removes entries.
+
+```
+T=0s   POST /sessions/abc123/run fires
+       _run_graph starts
+       session_events["abc123"] = []          ← empty list created
+
+       session_events["abc123"]
+       ┌───────────────────────┐
+       │  (empty)              │  cursor=0
+       └───────────────────────┘
+
+
+T=2s   plan node completes
+       _append_event({node:"plan", status:"Planning complete"})
+
+       session_events["abc123"]
+       ┌────────────────────────────────────────────────┐
+       │ [0] {node:"plan", status:"Planning complete"}  │  ← appended
+       └────────────────────────────────────────────────┘
+            signal.set() → SSE consumer wakes
+            consumer: cursor=0 < len=1 → drain [0] → yield to browser
+            consumer: cursor=1, parks on signal.wait()
+
+
+T=18s  enrich_financials + research both complete (parallel)
+       chunk carries both in one dict
+       _append_event({node:"enrich_financials", status:"Financials enriched"})
+       _append_event({node:"research",          status:"Researching 12 topics"})
+
+       session_events["abc123"]
+       ┌────────────────────────────────────────────────────────────────┐
+       │ [0] {node:"plan",              status:"Planning complete"}     │
+       │ [1] {node:"enrich_financials", status:"Financials enriched"}  │  ← appended
+       │ [2] {node:"research",          status:"Researching 12 topics"}│  ← appended
+       └────────────────────────────────────────────────────────────────┘
+            signal.set() (first append) → consumer wakes
+            signal already set (second append) → no-op
+            consumer: cursor=1 < len=3 → drain [1],[2] in one pass
+            consumer: cursor=3, parks on signal.wait()
+
+
+T=26s  synthesize completes
+       _append_event({node:"synthesize", status:"Synthesis complete"})
+
+       session_events["abc123"]
+       ┌────────────────────────────────────────────────────────────────┐
+       │ [0] {node:"plan",              status:"Planning complete"}     │
+       │ [1] {node:"enrich_financials", status:"Financials enriched"}  │
+       │ [2] {node:"research",          status:"Researching 12 topics"}│
+       │ [3] {node:"synthesize",        status:"Synthesis complete"}   │  ← appended
+       └────────────────────────────────────────────────────────────────┘
+            signal.set() → consumer drains [3] → cursor=4
+
+
+T=27s  quality_gate completes (score=0.61, below threshold)
+       _append_event({node:"quality_gate", status:"Score 0.61 — re-researching"})
+
+       session_events["abc123"]
+       ┌────────────────────────────────────────────────────────────────────────────┐
+       │ [0] {node:"plan",              status:"Planning complete"}                 │
+       │ [1] {node:"enrich_financials", status:"Financials enriched"}              │
+       │ [2] {node:"research",          status:"Researching 12 topics"}            │
+       │ [3] {node:"synthesize",        status:"Synthesis complete"}               │
+       │ [4] {node:"quality_gate",      status:"Score 0.61 — re-researching"}      │  ← appended
+       └────────────────────────────────────────────────────────────────────────────┘
+            consumer drains [4] → cursor=5
+
+
+T=38s  research loops again (revision 1)
+       _append_event({node:"research", status:"Targeted re-research on 3 gaps"})
+
+       session_events["abc123"]
+       ┌──────────────────────────────────────────────────────────────────────────────┐
+       │ [0] {node:"plan",              ...}                                           │
+       │ [1] {node:"enrich_financials", ...}                                           │
+       │ [2] {node:"research",          status:"Researching 12 topics"}               │
+       │ [3] {node:"synthesize",        ...}                                           │
+       │ [4] {node:"quality_gate",      status:"Score 0.61 — re-researching"}         │
+       │ [5] {node:"research",          status:"Targeted re-research on 3 gaps"}      │  ← second research
+       └──────────────────────────────────────────────────────────────────────────────┘
+            note: "research" appears TWICE — UI revision counter increments
+
+
+T=46s  synthesize → quality_gate (score=0.88, passes) → strategize → generate_report
+       four more appends
+
+       session_events["abc123"]   final state
+       ┌──────────────────────────────────────────────────────────────────────────────┐
+       │ [0]  {node:"plan",              status:"Planning complete"}                   │
+       │ [1]  {node:"enrich_financials", status:"Financials enriched"}               │
+       │ [2]  {node:"research",          status:"Researching 12 topics"}             │
+       │ [3]  {node:"synthesize",        status:"Synthesis complete"}                │
+       │ [4]  {node:"quality_gate",      status:"Score 0.61 — re-researching"}       │
+       │ [5]  {node:"research",          status:"Targeted re-research on 3 gaps"}    │
+       │ [6]  {node:"synthesize",        status:"Synthesis complete"}                │
+       │ [7]  {node:"quality_gate",      status:"Score 0.88 — passing"}              │
+       │ [8]  {node:"strategize",        status:"Strategy complete"}                 │
+       │ [9]  {node:"generate_report",   status:"Report ready"}                      │
+       └──────────────────────────────────────────────────────────────────────────────┘
+            finally: running_sessions.discard, stream_signals.pop.set()
+            consumer wakes: checks DB → "completed"
+            yields {node:"done"} → browser
+            generator returns, SSE connection closes
+```
+
+---
+
+## The cursor — how reconnect works
+
+The cursor is the consumer's read position in the list. It only ever moves forward.
+
+```
+Normal flow:                              Reconnect mid-run:
+
+session_events = [e0,e1,e2,e3,e4,e5]    session_events = [e0,e1,e2,e3,e4,e5]
+                                                           (server kept the list)
+consumer cursor=0                         browser refresh → GET /progress
+  drain e0 → yield → cursor=1            ◄── {events:[e0,e1,e2], status:"running"}
+  drain e1 → yield → cursor=2            frontend: after = 3
+  drain e2 → yield → cursor=3
+  park on signal.wait()                   new EventSource(?after=3)
+                                          new consumer cursor=3
+  e3 arrives → signal.set()
+  drain e3 → yield → cursor=4              cursor=3 < len=6
+  park on signal.wait()                     drain e3 → yield
+                                            drain e4 → yield
+  e4 arrives → signal.set()                drain e5 → yield
+  drain e4 → yield → cursor=5              cursor=6 = len → park
+  ...                                     ← seamless, nothing missed
+```
+
+The list never shrinks. An old consumer at cursor=0 and a new consumer at cursor=3
+can both read from the same list simultaneously without interfering.
+
+---
+
 ## The streaming detail — producer to browser
 
 ```
@@ -194,9 +334,8 @@ if values.get("report"):
     events.append(_event("generate_report", "Report ready"))
 ```
 
-What's lost: exact status strings from each node (e.g. "Researching 8 topics across 4
-domains"). The checkpoint stores state, not messages. Reconstruction uses generic
-statuses.
+What's lost: exact status strings from each node. The checkpoint stores state, not
+messages. Reconstruction uses generic statuses.
 
 ---
 
