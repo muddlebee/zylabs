@@ -1,5 +1,8 @@
 # Scaling — In-Process State & Redis
 
+Entry point for the scaling ladder and decision guide:
+[scaling.md](./scaling.md).
+
 ## The problem
 
 Three module-level dicts in `main.py` hold all live session state:
