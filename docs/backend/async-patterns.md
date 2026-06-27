@@ -1,7 +1,9 @@
 # Async Patterns — Backend Internals
 
-How `asyncio` is used across the backend, and why. For the streaming state machine
-(`session_events`, `stream_signals`, `running_sessions`), see
+How `asyncio` is used across the backend, and why. For the event loop vs thread pool
+model (conceptual overview), see
+[event-loop-and-thread-pool.md](./event-loop-and-thread-pool.md). For the streaming state
+machine (`session_events`, `stream_signals`, `running_sessions`), see
 [workflow-streaming.md](./workflow-streaming.md). For how to scale (ladder, Redis, job
 queues), see [scaling.md](./scaling.md) and
 [scaling-in-process-state.md](./scaling-in-process-state.md).

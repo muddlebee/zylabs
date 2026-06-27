@@ -1,5 +1,8 @@
 # Workflow Streaming & Persistence
 
+Layer 1 (in-memory coordination) runs on the **event loop thread** only — see
+[event-loop-and-thread-pool.md](./event-loop-and-thread-pool.md).
+
 ## Three storage layers
 
 Everything makes sense once you see the three layers:

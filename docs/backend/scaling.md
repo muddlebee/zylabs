@@ -8,7 +8,8 @@ from single-process dev to production multi-instance deployment.
 | Topic | Doc |
 |---|---|
 | In-process state, Redis pub/sub, job queues | [scaling-in-process-state.md](./scaling-in-process-state.md) |
-| asyncio, event loop, thread pool | [async-patterns.md](./async-patterns.md) |
+| Event loop thread vs thread pool | [event-loop-and-thread-pool.md](./event-loop-and-thread-pool.md) |
+| asyncio API map and design decisions | [async-patterns.md](./async-patterns.md) |
 | SSE, `session_events`, reconnect behaviour | [workflow-streaming.md](./workflow-streaming.md) |
 | Route-level request flows | [api-flows.md](./api-flows.md) |
 
