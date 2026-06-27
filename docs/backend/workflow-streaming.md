@@ -25,6 +25,90 @@ Everything makes sense once you see the three layers:
 Layer 1 drives live streaming. Layer 2 enables resumption after restart. Layer 3 is the
 permanent record.
 
+### Layer 1 detail — three in-memory structures
+
+These live as module-level globals in `main.py`. They coordinate the **background graph
+runner** (`_run_graph`) with the **SSE consumer** (`GET /sessions/{id}/stream`). They are
+**not** a job queue, thread pool, or worker registry.
+
+Each run is spawned with `asyncio.create_task(_run_graph(...))` — one coroutine on the
+event loop per session. `running_sessions` tracks those asyncio tasks, not threads. (Some
+graph nodes call `run_in_executor` for blocking Firecrawl I/O, but that is unrelated to
+these globals.)
+
+| Structure | Type | Question it answers |
+|-----------|------|---------------------|
+| `session_events` | `dict[str, list[dict]]` | What node updates have happened? (the event log) |
+| `stream_signals` | `dict[str, asyncio.Event]` | Should the SSE client wake up and read new events? (the doorbell) |
+| `running_sessions` | `set[str]` | Is `_run_graph` still executing in **this process**? (the alive flag) |
+
+All three are initialised together when `_run_graph` starts and torn down in its `finally`
+block (except `session_events`, which is left populated until the next run overwrites it).
+
+```
+POST /sessions/{id}/run
+  DB status → "running"
+  asyncio.create_task(_run_graph)     ← not a thread-pool submit
+
+_run_graph starts (same process, event loop)
+  running_sessions.add(session_id)
+  session_events[session_id] = []
+  stream_signals[session_id] = asyncio.Event()
+
+  ... graph.astream loop ...
+      _append_event() → session_events.append + stream_signals[id].set()
+
+_run_graph finally
+  running_sessions.discard(session_id)
+  stream_signals.pop(session_id).set()   ← final wake (signal then removed)
+```
+
+#### `session_events` — the whiteboard
+
+Append-only list of `{"node": "...", "status": "..."}` dicts (sometimes with `"errors"`).
+The SSE consumer reads forward from a cursor; it never removes entries. `GET /progress`
+returns the same list. If the buffer is empty (e.g. after restart), `_workflow_events`
+falls back to reconstructing events from the LangGraph checkpoint.
+
+#### `stream_signals` — the doorbell
+
+While the graph is producing events, the SSE handler would otherwise busy-poll
+`session_events`. Instead it parks on `await signal.wait()` (120s timeout).
+
+- **Producer** (`_append_event`): append to `session_events`, then `signal.set()`.
+- **Consumer** (`/stream`): drain all events from cursor onward; if caught up, `signal.clear()` then `await signal.wait()`.
+
+When the graph finishes, the signal is **popped** before the final `set()` — the doorbell
+is uninstalled. That is why `running_sessions` exists as a separate check (see below).
+
+#### `running_sessions` — the alive flag
+
+Tracks session IDs whose `_run_graph` task has started but not yet reached `finally`.
+Only `/stream` reads it; `/progress` and the frontend never see it.
+
+After draining events, the SSE loop checks three sources in order:
+
+```
+1. DB status completed/failed?  → yield done/error, close
+2. session_id NOT in running_sessions?  → graph task is done; poll DB ~3s for lagging status, then close
+3. else  → graph still running; park on stream_signals.wait()
+```
+
+The race this solves: when the graph ends, the last node event fires **before**
+`save_report` commits to `research.db`. The `finally` block discards from
+`running_sessions` and pops the signal, waking the consumer. At that instant DB may still
+say `"running"`. Step 2 above polls briefly instead of waiting 120s on a removed signal.
+
+#### What these structures do *not* do
+
+- **Not duplicate of DB status** — DB is set to `"running"` on POST `/run` before
+  `_run_graph` adds to `running_sessions` (tiny window where they disagree).
+- **Not double-run prevention** — nothing blocks POST `/run` if a session is already in
+  `running_sessions`.
+- **Not shared across workers** — each uvicorn process has its own copy. `/run` on
+  worker A and `/stream` on worker B breaks live streaming. See
+  `scaling-in-process-state.md` for the Redis replacement sketch.
+
 ---
 
 ## The workflow process — what happens inside `_run_graph`
@@ -256,6 +340,10 @@ await graph.astream(...)
 The `finally` block wake is critical — without it the consumer would park on
 `signal.wait()` for up to 120s after the graph finishes, because the last node event
 fires before `save_report` commits to DB.
+
+After the wake, the consumer may find DB still `"running"` and `session_id not in
+running_sessions` (task done, status lagging). It polls DB for up to 3s before closing
+rather than waiting on the now-removed signal. See **Layer 1 detail** above.
 
 ---
 
