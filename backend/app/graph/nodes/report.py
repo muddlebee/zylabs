@@ -13,6 +13,7 @@ def _report_errors(state: ResearchState) -> list:
 
 
 async def report_node(state: ResearchState) -> dict:
+    """Assembles the report dict — no I/O, no await. async def matches LangGraph nodes."""
     session_id = state["session_id"]
     log.info("report_node.start", session_id=session_id)
 

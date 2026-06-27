@@ -31,6 +31,11 @@ def get_chat_history(db: DBSession, session_id: str) -> list[ChatMessageModel]:
 
 
 async def chat(db: DBSession, session_id: str, user_message: str) -> str:
+    """Async route handler: only the LLM call is awaited I/O.
+
+    DB read/write below is sync on the event loop — fine for one short request;
+    see _session_status_async in main.py for the executor pattern on hot paths.
+    """
     log.info("chat_service.chat", session_id=session_id)
 
     report = get_report(db, session_id)
@@ -55,7 +60,7 @@ async def chat(db: DBSession, session_id: str, user_message: str) -> str:
     messages.append({"role": "user", "content": user_message})
 
     try:
-        response = await get_llm().ainvoke(messages)
+        response = await get_llm().ainvoke(messages)  # async I/O — loop free during wait
         assistant_reply = response.content
     except Exception as exc:
         log.error("chat_service.llm_error", session_id=session_id, error=str(exc))

@@ -26,14 +26,18 @@ structlog.configure(
 )
 log = structlog.get_logger()
 
-# In-memory workflow event log — survives SSE reconnects within a single process.
-session_events: dict[str, list[dict]] = {}
-running_sessions: set[str] = set()
-stream_signals: dict[str, asyncio.Event] = {}
+# ── Asyncio coordination state (process-local, single event-loop thread) ───────
+# See docs/backend/async-patterns.md. Not a job queue or thread pool — these
+# bridge the background _run_graph Task (producer) and GET /stream (consumer).
+session_events: dict[str, list[dict]] = {}       # append-only SSE event log
+running_sessions: set[str] = set()             # session IDs with a live _run_graph Task
+stream_signals: dict[str, asyncio.Event] = {}  # doorbell: producer.set() wakes SSE consumer
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Async context manager: checkpoint I/O is awaitable (unlike sync SQLAlchemy).
+    # Graph is built once per process; aget_state/astream use this checkpointer.
     init_db()
     async with AsyncSqliteSaver.from_conn_string(settings.checkpoint_db_path) as checkpointer:
         graph_module.graph = build_graph(checkpointer)
@@ -75,13 +79,17 @@ def _session_or_404(session_id: str, db: Session):
 
 def _append_event(session_id: str, event: dict) -> None:
     session_events.setdefault(session_id, []).append(event)
+    # Event.set() is thread-safe and schedules the waiting SSE coroutine on the loop.
     signal = stream_signals.get(session_id)
     if signal:
         signal.set()
 
 
 async def _workflow_events(session_id: str) -> list[dict[str, str]]:
-    """Return buffered events, falling back to checkpoint reconstruction."""
+    """Return buffered events, falling back to checkpoint reconstruction.
+
+    await aget_state yields the loop while SQLite checkpoint is read — non-blocking.
+    """
     buffered = session_events.get(session_id)
     if buffered:
         return buffered
@@ -95,12 +103,15 @@ async def _workflow_events(session_id: str) -> list[dict[str, str]]:
 
 
 async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
+    """Background producer: scheduled via create_task, not a thread."""
     config = {"configurable": {"thread_id": session_id}}
     running_sessions.add(session_id)
     session_events[session_id] = []
-    stream_signals[session_id] = asyncio.Event()
+    stream_signals[session_id] = asyncio.Event()  # one Event per run; popped in finally
 
     try:
+        # async for over astream: each yield is an await point — loop serves HTTP/SSE
+        # while LangGraph nodes wait on LLM/Firecrawl I/O.
         async for chunk in graph_module.graph.astream(initial_state, config=config, stream_mode="updates"):
             # Under the plan→{financials, research} fan-out a single chunk can carry
             # multiple node updates, so emit one SSE event per node rather than the first.
@@ -114,7 +125,8 @@ async def _run_graph(session_id: str, initial_state: dict, db_factory) -> None:
                     event["errors"] = node_state["errors"]
                 _append_event(session_id, event)
 
-        # Retrieve final state and persist report
+        # Sync SQLAlchemy write on the event loop — once per run, acceptable for local SQLite.
+        # (SSE status polls use run_in_executor because they run in a hot loop.)
         final = await graph_module.graph.aget_state(config)
         report = final.values.get("report")
         if report:
@@ -227,12 +239,15 @@ async def run_session(session_id: str, db: Session = Depends(get_db)):
     }
 
     session_service.update_session_status(db, session_id, "running")
+    # create_task: cooperative concurrency — schedules a Task on this process's event loop.
+    # Returns immediately so the client can open SSE; NOT a thread or process pool job.
     asyncio.create_task(_run_graph(session_id, initial_state, get_db))
     log.info("session.run_started", session_id=session_id)
     return {"session_id": session_id, "status": "running"}
 
 
 def _session_status(session_id: str) -> str | None:
+    """Sync ORM read — blocks the calling thread. Never call directly from async code."""
     db = SessionLocal()
     try:
         session = session_service.get_session(db, session_id)
@@ -242,6 +257,9 @@ def _session_status(session_id: str) -> str | None:
 
 
 async def _session_status_async(session_id: str) -> str | None:
+    # run_in_executor(None, ...): default ThreadPoolExecutor — true parallel I/O across
+    # streams. Each call blocks one worker thread, not the event loop. Own SessionLocal
+    # per call so threads never share an ORM session.
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _session_status, session_id)
 
@@ -250,6 +268,7 @@ async def _session_status_async(session_id: str) -> str | None:
 async def stream_session(session_id: str, after: int = 0, db: Session = Depends(get_db)):
     _session_or_404(session_id, db)
 
+    # Async generator: each yield sends one SSE frame. FastAPI pulls via __anext__.
     async def event_generator() -> AsyncGenerator[str, None]:
         cursor = max(0, after)
 
@@ -272,7 +291,8 @@ async def stream_session(session_id: str, after: int = 0, db: Session = Depends(
                 return
 
             if session_id not in running_sessions:
-                # Graph finished but DB status may lag — poll briefly before closing.
+                # Task finished (finally ran) but save_report may not be committed yet.
+                # sleep yields the loop (cooperative); status read uses executor (parallel).
                 for _ in range(15):
                     await asyncio.sleep(0.2)
                     status = await _session_status_async(session_id)
@@ -286,8 +306,10 @@ async def stream_session(session_id: str, after: int = 0, db: Session = Depends(
 
             signal = stream_signals.get(session_id)
             if signal:
+                # clear() before wait(): ignore a stale set() from a prior wake.
                 signal.clear()
                 try:
+                    # wait_for: bounded wait — zombie streams get a timeout event.
                     await asyncio.wait_for(signal.wait(), timeout=120)
                 except asyncio.TimeoutError:
                     yield f"data: {json.dumps({'node': 'timeout', 'status': 'Stream timed out'})}\n\n"

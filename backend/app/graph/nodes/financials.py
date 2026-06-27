@@ -40,6 +40,9 @@ async def financials_node(state: ResearchState) -> dict:
     try:
         query = financial_search_query(company_type)
         loop = asyncio.get_event_loop()
+        # wait_for + run_in_executor: bounded blocking I/O on a worker thread.
+        # Financials runs parallel with research (LangGraph fan-out); cap prevents
+        # a hung Firecrawl call from stalling synthesize indefinitely.
         sources = await asyncio.wait_for(
             loop.run_in_executor(
                 None,
@@ -63,7 +66,7 @@ async def financials_node(state: ResearchState) -> dict:
             company_name,
             combined_text,
             company_type,
-        )
+        )  # ainvoke inside — native async LLM I/O
         if not financials:
             raise ValueError("No financial fields extracted from search results")
 

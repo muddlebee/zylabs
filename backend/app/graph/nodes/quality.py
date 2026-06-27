@@ -14,6 +14,7 @@ FACTUAL_SECTIONS = [
 
 
 async def quality_gate_node(state: ResearchState) -> dict:
+    """async def for LangGraph's async node API; no await — pure CPU, runs on the loop."""
     session_id = state["session_id"]
     findings = state.get("findings", {})
     sources = state.get("sources", [])

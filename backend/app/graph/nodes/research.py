@@ -35,9 +35,10 @@ async def research_node(state: ResearchState) -> dict:
     loop = asyncio.get_event_loop()
     search_error_msg: str | None = None
 
-    # Scrape the company URL once — the only page we keep in full (synthesize reads
-    # it at [:3000]). Runs concurrently with the searches below.
+    # Firecrawl SDK is sync — run_in_executor offloads blocking HTTP to the default
+    # thread pool so the event loop can serve other requests while searches run.
     async def _scrape_company() -> None:
+        # Only full-page scrape (synthesize reads scraped[url][:3000]).
         if not company_url or company_url in scraped:
             return
         try:
@@ -71,6 +72,8 @@ async def research_node(state: ResearchState) -> dict:
                 errors.append(NodeError(node="research", message=msg, recoverable=True))
             return []
 
+    # gather: start all scrape + searches together; wall time ≈ slowest call, not sum.
+    # Concurrent on one loop (interleaved awaits), but executor threads run I/O in parallel.
     results = await asyncio.gather(
         _scrape_company(),
         *[_search(q) for q in questions_to_run],

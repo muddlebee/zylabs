@@ -72,7 +72,7 @@ async def strategize_node(state: ResearchState) -> dict:
     )
 
     try:
-        response = await get_llm().ainvoke([
+        response = await get_llm().ainvoke([  # async LLM I/O — event loop stays responsive
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
         ])

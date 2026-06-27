@@ -35,7 +35,8 @@ def build_graph(checkpointer):
             "generate_report": "generate_report",
         },
     )
-    # enrich_financials and research fan out from plan and converge on synthesize.
+    # LangGraph concurrency: both nodes run as async Tasks on the same event loop after
+    # plan (not asyncio.gather here — the framework schedules the fan-out/join).
     builder.add_edge("enrich_financials", "synthesize")
     builder.add_edge("research", "synthesize")
     builder.add_edge("synthesize", "quality_gate")

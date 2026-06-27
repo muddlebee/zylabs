@@ -128,6 +128,6 @@ async def extract_financials_from_text(
 
     llm = get_llm()
     prompt = build_extract_prompt(company_name, text, company_type)
-    response = await llm.ainvoke([{"role": "user", "content": prompt}])
+    response = await llm.ainvoke([{"role": "user", "content": prompt}])  # async LLM I/O
     financials = parse_financials_response(response.content)
     return clean_financials(financials)

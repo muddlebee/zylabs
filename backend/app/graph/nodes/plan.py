@@ -37,6 +37,7 @@ async def plan_node(state: ResearchState) -> dict:
     )
 
     try:
+        # ainvoke: true async HTTP to the LLM — yields the event loop during network wait.
         response = await get_llm().ainvoke([
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
@@ -64,7 +65,7 @@ async def plan_node(state: ResearchState) -> dict:
 
         ok, firecrawl_msg = await asyncio.get_event_loop().run_in_executor(
             None, check_firecrawl_ready,
-        )
+        )  # sync credit check — must not block the loop
         if not ok:
             log.warning("plan_node.firecrawl_unavailable", session_id=session_id, reason=firecrawl_msg)
             return {
