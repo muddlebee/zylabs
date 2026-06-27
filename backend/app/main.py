@@ -241,6 +241,11 @@ def _session_status(session_id: str) -> str | None:
         db.close()
 
 
+async def _session_status_async(session_id: str) -> str | None:
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _session_status, session_id)
+
+
 @app.get("/sessions/{session_id}/stream")
 async def stream_session(session_id: str, after: int = 0, db: Session = Depends(get_db)):
     _session_or_404(session_id, db)
@@ -258,7 +263,7 @@ async def stream_session(session_id: str, after: int = 0, db: Session = Depends(
                     return
                 yield f"data: {json.dumps(item)}\n\n"
 
-            status = _session_status(session_id)
+            status = await _session_status_async(session_id)
             if status == "completed":
                 yield f"data: {json.dumps({'node': 'done', 'status': 'Workflow complete'})}\n\n"
                 return
@@ -270,7 +275,7 @@ async def stream_session(session_id: str, after: int = 0, db: Session = Depends(
                 # Graph finished but DB status may lag — poll briefly before closing.
                 for _ in range(15):
                     await asyncio.sleep(0.2)
-                    status = _session_status(session_id)
+                    status = await _session_status_async(session_id)
                     if status == "completed":
                         yield f"data: {json.dumps({'node': 'done', 'status': 'Workflow complete'})}\n\n"
                         return
